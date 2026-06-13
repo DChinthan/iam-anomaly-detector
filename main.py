@@ -1,19 +1,22 @@
 """
-CLI entry point.
+CLI entry point for the IAM Anomaly Detector.
 
 Usage:
+    python main.py pipeline          # generate + train + score (end-to-end)
     python main.py generate          # generate synthetic logs
-    python main.py train             # extract features and train models
-    python main.py score             # score all users, print flagged ones
-    python main.py pipeline          # run all steps end-to-end
-    python main.py ingest            # pull from CloudWatch (or mock)
+    python main.py train             # extract features and train all models
+    python main.py score             # score users, persist to DynamoDB, print flagged
+    python main.py insights          # run GenAI analysis on flagged users
+    python main.py ingest            # pull live events from CloudWatch
 """
 
 import sys
 from data.log_generator import generate_logs
 from features.extractor import load_logs, extract_features
-from models.detector import train, score
+from models.detector import AnomalyDetector
 from aws.cloudwatch_client import ingest_to_db
+from aws.dynamodb_store import DynamoDBStore
+from genai.insights import analyze_batch
 
 DB_PATH = "data/iam_logs.db"
 
@@ -25,25 +28,44 @@ def cmd_generate():
 def cmd_train():
     raw = load_logs(DB_PATH)
     features = extract_features(raw)
-    train(features)
+    AnomalyDetector().fit(features)
 
 
 def cmd_score():
     raw = load_logs(DB_PATH)
     features = extract_features(raw)
-    result = score(features)
+    result = AnomalyDetector.load().score(features)
+
+    store = DynamoDBStore()
+    store.bulk_put(result)
+
     flagged = result[result["flagged"]].sort_values("ensemble_score", ascending=False)
-    print(f"\n{'='*60}")
-    print(f"FLAGGED USERS ({len(flagged)} of {len(result)} total)")
-    print(f"{'='*60}")
-    print(flagged[["user_id", "ensemble_score", "suspicious_api_ratio",
-                    "off_hours_ratio", "burst_score"]].to_string(index=False))
+    print(f"\n{'='*70}")
+    print(f"FLAGGED USERS  ({len(flagged)} of {len(result)} total)")
+    print(f"{'='*70}")
+    print(flagged[[
+        "user_id", "ensemble_score", "iso_score", "svm_score", "ae_score",
+        "suspicious_api_ratio", "off_hours_ratio", "burst_score",
+    ]].to_string(index=False))
+
+
+def cmd_insights():
+    raw = load_logs(DB_PATH)
+    features = extract_features(raw)
+    result = AnomalyDetector.load().score(features)
+    alerts = analyze_batch(result, top_n=5)
+    for alert in alerts:
+        print(f"\n[{alert.severity}] {alert.user_id} — {alert.attack_pattern}")
+        for sig in alert.key_signals:
+            print(f"  • {sig}")
+        print(f"  Recommendation: {alert.recommendation}")
 
 
 def cmd_pipeline():
     cmd_generate()
     cmd_train()
     cmd_score()
+    cmd_insights()
 
 
 def cmd_ingest():
@@ -51,16 +73,17 @@ def cmd_ingest():
 
 
 COMMANDS = {
+    "pipeline": cmd_pipeline,
     "generate": cmd_generate,
     "train": cmd_train,
     "score": cmd_score,
-    "pipeline": cmd_pipeline,
+    "insights": cmd_insights,
     "ingest": cmd_ingest,
 }
 
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "pipeline"
     if cmd not in COMMANDS:
-        print(f"Unknown command: {cmd}. Available: {list(COMMANDS.keys())}")
+        print(f"Unknown command '{cmd}'. Available: {list(COMMANDS.keys())}")
         sys.exit(1)
     COMMANDS[cmd]()

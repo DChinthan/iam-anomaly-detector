@@ -1,62 +1,96 @@
-# AWS IAM Anomaly Detector
+# AI-Driven Behavioral Anomaly Detection in IAM: GenAI Security Tool
 
-Unsupervised machine learning system that detects suspicious IAM user behavior from AWS CloudTrail logs. Surfaces insider threats, compromised credentials, and privilege escalation attempts in real time.
+[![Python](https://img.shields.io/badge/Python-3.11+-blue)](https://python.org)
+[![TensorFlow](https://img.shields.io/badge/TensorFlow-2.15-orange)](https://tensorflow.org)
+[![scikit-learn](https://img.shields.io/badge/scikit--learn-1.4-F7931E)](https://scikit-learn.org)
+[![Streamlit](https://img.shields.io/badge/Streamlit-1.32-FF4B4B)](https://streamlit.io)
+[![AWS](https://img.shields.io/badge/AWS-CloudWatch%20%7C%20DynamoDB-232F3E)](https://aws.amazon.com)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-![Python](https://img.shields.io/badge/Python-3.11+-blue) ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.4-orange) ![Streamlit](https://img.shields.io/badge/Streamlit-1.32-red) ![AWS](https://img.shields.io/badge/AWS-CloudWatch-yellow)
+An AI-powered security tool that autonomously detects anomalous AWS IAM user behavior using an ensemble of **Isolation Forest**, **One-Class SVM**, and a **TensorFlow Autoencoder** — with a **GenAI intelligence layer** (Claude) that generates analyst-grade incident reports for every flagged user.
+
+All models are trained exclusively on normal behavior — no labeled attack data required.
 
 ---
 
 ## Architecture
 
 ```
-CloudTrail / CloudWatch Logs
-        │
-        ▼
-┌───────────────────┐
-│  Log Ingestion    │  aws/cloudwatch_client.py
-│  (boto3 / mock)   │
-└────────┬──────────┘
-         │  raw events (SQLite)
-         ▼
-┌───────────────────┐
-│ Feature Extraction│  features/extractor.py
-│  per-user profile │
-└────────┬──────────┘
-         │  12-dim behavioral vector
-         ▼
-┌───────────────────────────────┐
-│  Ensemble Anomaly Detection   │  models/detector.py
-│  ┌──────────────┐ ┌─────────┐ │
-│  │ Isolation    │ │One-Class│ │
-│  │ Forest (60%) │ │SVM (40%)│ │
-│  └──────────────┘ └─────────┘ │
-└────────┬──────────────────────┘
-         │  anomaly scores
-         ▼
-┌───────────────────┐
-│  Streamlit        │  dashboard/app.py
-│  Dashboard        │
-└───────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│  AWS Data Sources                                           │
+│  ┌─────────────────┐       ┌──────────────────────────┐    │
+│  │  CloudWatch Logs│       │  DynamoDB (NoSQL store)  │    │
+│  │  (CloudTrail)   │       │  Anomaly results / alerts│    │
+│  └────────┬────────┘       └──────────────────────────┘    │
+└───────────┼─────────────────────────────────────────────────┘
+            │ raw IAM events → SQLite
+            ▼
+┌───────────────────────────────────────────────────────┐
+│  Feature Engineering  (features/extractor.py)         │
+│  FeatureExtractor class — 12 behavioral features      │
+│  per user: login frequency, session duration,         │
+│  geographic deviation, API call patterns, MFA rate    │
+└───────────────────┬───────────────────────────────────┘
+                    │  feature matrix (n_users × 12)
+                    ▼
+┌───────────────────────────────────────────────────────┐
+│  Ensemble Anomaly Detection  (models/detector.py)     │
+│                                                       │
+│  ┌─────────────────┐ ┌──────────────┐ ┌───────────┐  │
+│  │ Isolation Forest│ │ One-Class SVM│ │TensorFlow │  │
+│  │   (40% weight)  │ │  (30% weight)│ │Autoencoder│  │
+│  │  tree-based     │ │  kernel-based│ │ (30% wgt) │  │
+│  │  n_estimators   │ │  RBF kernel  │ │ Dense AE  │  │
+│  │  = 300          │ │  nu = 0.05   │ │ 12→8→4→8→12│ │
+│  └─────────────────┘ └──────────────┘ └───────────┘  │
+│         └──────────────────┬──────────────┘           │
+│                   Weighted ensemble score              │
+└───────────────────┬───────────────────────────────────┘
+                    │  anomaly scores per user
+                    ▼
+┌───────────────────────────────────────────────────────┐
+│  GenAI Security Intelligence  (genai/insights.py)     │
+│  Claude analyzes each flagged user's profile →        │
+│  attack pattern + key signals + remediation steps     │
+└───────────────────┬───────────────────────────────────┘
+                    │
+                    ▼
+┌───────────────────────────────────────────────────────┐
+│  Streamlit Real-Time Dashboard  (dashboard/app.py)    │
+│  • GenAI alert cards  • Score distribution            │
+│  • Feature heatmap    • Model comparison scatter      │
+│  • API call timeline  • Flagged user table            │
+└───────────────────────────────────────────────────────┘
 ```
+
+---
 
 ## Key Features
 
-- **Unsupervised detection** — no labeled attack data required; models learn normal behavior and flag deviations
-- **Ensemble scoring** — combines Isolation Forest (tree-based) and One-Class SVM (kernel-based) for robust signal
-- **12 behavioral features** per user: off-hours access ratio, suspicious API call ratio, MFA usage rate, burst activity score, geo deviation score, session duration statistics, and more
-- **AWS CloudWatch integration** — live ingestion via Logs Insights queries; falls back to synthetic data when `AWS_MOCK=true`
-- **Interactive dashboard** — anomaly score distribution, feature heatmap, timeline view, model comparison scatter plot
+- **Unsupervised ML ensemble** — Isolation Forest + One-Class SVM + TF Autoencoder trained on normal IAM profiles; no attack labels needed
+- **TensorFlow Autoencoder** — Dense neural network learns to reconstruct normal sessions; high reconstruction error = anomaly
+- **GenAI incident reports** — Claude generates natural-language security alerts with attack pattern classification and remediation steps
+- **Automated feature extraction** from SQL (SQLite) and NoSQL (DynamoDB) sources
+- **AWS CloudWatch ingestion** — Logs Insights queries over CloudTrail events; mock mode for local development
+- **DynamoDB persistence** — Scored results and alerts stored in NoSQL for cross-session querying
+- **OOP design** — `FeatureExtractor`, `AnomalyDetector`, `IAMAutoencoder`, `DynamoDBStore`, `SecurityAlert` classes
+
+---
 
 ## Behavioral Features
 
-| Feature | Description | Anomaly Signal |
+| Feature | Description | Attack Signal |
 |---|---|---|
-| `off_hours_ratio` | % calls made between 10pm–6am | Compromised creds used outside business hours |
-| `suspicious_api_ratio` | % calls to privilege-escalation APIs | CreateAccessKey, GetSecretValue, DeleteTrail |
-| `burst_score` | Max API calls in any 30-min window | Automated credential harvesting |
-| `geo_deviation_score` | Unique /24 subnets used | Lateral movement across IPs |
-| `mfa_usage_rate` | MFA present on API calls | Stolen long-lived credentials |
+| `login_frequency` / `total_api_calls` | Calls per day over the window | Automated credential abuse |
+| `session_duration` (avg + max) | Time between first and last call per session | Persistent unauthorized sessions |
+| `geographic_deviation` | Unique /24 subnets used | Lateral movement / IP hopping |
+| `api_call_patterns` | % calls to privilege-escalation APIs | CreateAccessKey, GetSecretValue, DeleteTrail |
+| `off_hours_ratio` | % activity between 10pm–6am | Compromised creds used outside business hours |
+| `mfa_usage_rate` | MFA present on API calls | Stolen long-lived access keys |
+| `burst_score` | Max calls in any 30-min window | Automated credential harvesting |
 | `error_rate` | % calls returning AccessDenied | Probing for permissions |
+
+---
 
 ## Quickstart
 
@@ -64,68 +98,110 @@ CloudTrail / CloudWatch Logs
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Generate synthetic data, train models, print flagged users
+# 2. Run the full pipeline (generate → train → score → insights)
 python main.py pipeline
 
-# 3. Launch interactive dashboard
+# 3. Launch the real-time Streamlit dashboard
 streamlit run dashboard/app.py
 ```
 
-The dashboard auto-generates data on first run. Hit **Regenerate Data & Retrain** in the sidebar to refresh.
+### Optional: Enable live GenAI alerts
 
-## AWS Integration
+```bash
+export ANTHROPIC_API_KEY=your_key
+streamlit run dashboard/app.py
+```
 
-To connect to a real AWS environment:
+### Optional: Connect to real AWS
 
 ```bash
 export AWS_MOCK=false
 export AWS_ACCESS_KEY_ID=your_key
 export AWS_SECRET_ACCESS_KEY=your_secret
 export AWS_REGION=us-east-1
+export DYNAMODB_TABLE=iam-anomaly-results
 
-python main.py ingest   # pull last 24h from CloudWatch
+python main.py ingest    # pull last 24h from CloudWatch Logs
 python main.py train
 python main.py score
 ```
 
-CloudTrail events must be delivered to a CloudWatch Logs group. The default log group is `/aws/cloudtrail/events`.
+---
 
 ## Project Structure
 
 ```
 iam-anomaly-detector/
 ├── data/
-│   └── log_generator.py      # Synthetic IAM log generation
+│   └── log_generator.py        # Synthetic IAM log generation (SQL → SQLite)
 ├── features/
-│   └── extractor.py          # Per-user behavioral feature engineering
+│   └── extractor.py            # FeatureExtractor class — 12 behavioral features
 ├── models/
-│   └── detector.py           # Isolation Forest + One-Class SVM ensemble
+│   ├── autoencoder.py          # TensorFlow/Keras Dense Autoencoder (IAMAutoencoder class)
+│   └── detector.py             # AnomalyDetector ensemble class (IF + SVM + AE)
+├── genai/
+│   └── insights.py             # Claude-powered GenAI security alert generation
 ├── aws/
-│   └── cloudwatch_client.py  # CloudWatch Logs ingestion
+│   ├── cloudwatch_client.py    # CloudWatch Logs ingestion (boto3)
+│   └── dynamodb_store.py       # DynamoDB NoSQL persistence (DynamoDBStore class)
 ├── dashboard/
-│   └── app.py                # Streamlit visualization dashboard
-├── main.py                   # CLI entry point
+│   └── app.py                  # Streamlit real-time dashboard (Plotly charts)
+├── main.py                     # CLI: pipeline / generate / train / score / insights
 └── requirements.txt
 ```
 
-## Results on Synthetic Data
+---
 
-The ensemble achieves **>95% detection rate** on injected anomalies with a <10% false positive rate on a 30-day simulation window of 55 users (50 normal + 5 adversarial).
+## ML Model Details
 
-Anomaly patterns injected:
-- Off-hours access from suspicious IP ranges
-- Privilege escalation API call bursts
-- Missing MFA with high session duration
-- Credential harvesting (CreateAccessKey + GetSecretValue in rapid succession)
+### Isolation Forest
+- 300 estimators, contamination = 0.05
+- Isolates anomalies by randomly partitioning feature space
+- Anomalies require fewer splits → shorter path lengths
 
-## Tech Stack
+### One-Class SVM
+- RBF kernel, nu = 0.05
+- Learns a hypersphere around normal behavior in kernel space
+- Points outside the boundary are classified as anomalies
 
-- **scikit-learn** — IsolationForest, OneClassSVM, StandardScaler
-- **pandas / numpy** — feature engineering pipeline
-- **Streamlit + Plotly** — interactive dashboard
-- **boto3** — AWS CloudWatch Logs integration
-- **SQLite** — local log storage
+### TensorFlow Autoencoder
+- Architecture: Dense 12 → 8 → 4 → 8 → 12
+- Trained to minimize reconstruction MSE on normal user profiles
+- At inference: `anomaly_score = MSE(input, reconstruction)`, normalized to [0, 1]
+- Threshold set at 95th percentile of training reconstruction errors
+
+### Ensemble
+- Weighted combination: 40% IF + 30% SVM + 30% AE
+- Users with ensemble score > 0.65 are flagged for investigation
 
 ---
 
-Built by [Chinthan Dinesh](https://github.com/DChinthan)
+## Results on Synthetic Data
+
+| Metric | Value |
+|---|---|
+| True Positive Rate | >95% |
+| False Positive Rate | <10% |
+| Users analyzed | 55 (50 normal + 5 adversarial) |
+| Log events | ~120,000 over 30 days |
+
+Injected anomaly patterns: off-hours access from suspicious IPs, privilege escalation API bursts, missing MFA with high session duration, credential harvesting (CreateAccessKey + GetSecretValue bursts).
+
+---
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| ML models | scikit-learn (IsolationForest, OneClassSVM), TensorFlow/Keras |
+| GenAI | Anthropic Claude API |
+| Feature engineering | pandas, numpy |
+| SQL storage | SQLite |
+| NoSQL storage | AWS DynamoDB (boto3) |
+| Log ingestion | AWS CloudWatch Logs Insights (boto3) |
+| Dashboard | Streamlit, Plotly |
+| Version control | Git (open-source) |
+
+---
+
+Built by [Chinthan Dinesh](https://github.com/DChinthan) · [github.com/DChinthan/iam-anomaly-detector](https://github.com/DChinthan/iam-anomaly-detector)
