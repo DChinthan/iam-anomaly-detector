@@ -105,6 +105,28 @@ python main.py pipeline
 streamlit run dashboard/app.py
 ```
 
+### Option B: Real-world dataset (LANL Unified Host and Network Dataset)
+
+The [LANL Comprehensive Multi-Source Cybersecurity Events](https://csr.lanl.gov/data/cyber1/) dataset contains 58 days of de-identified authentication logs from Los Alamos National Laboratory — millions of real enterprise auth events used in dozens of published security papers.
+
+```bash
+# 1. Visit csr.lanl.gov/data/cyber1/ and accept the free data use agreement
+# 2. Download auth.txt.gz (~1.5 GB) and place it in data/
+
+# 3. Ingest the first 500k events (≈ 40 MB uncompressed, plenty for the models)
+python main.py lanl data/auth.txt.gz 500000
+
+# 4. Train and score on real data
+python main.py train
+python main.py score
+streamlit run dashboard/app.py
+```
+
+The LANL adapter (`data/lanl_adapter.py`) maps authentication events to the IAM log schema:
+maps `auth_type` + `logon_type` → AWS API call equivalents, derives session durations from LogOn/LogOff pairs, and assigns stable synthetic IPs from computer names.
+
+---
+
 ### Optional: Enable live GenAI alerts
 
 ```bash

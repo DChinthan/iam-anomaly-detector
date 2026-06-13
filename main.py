@@ -8,6 +8,8 @@ Usage:
     python main.py score             # score users, persist to DynamoDB, print flagged
     python main.py insights          # run GenAI analysis on flagged users
     python main.py ingest            # pull live events from CloudWatch
+    python main.py lanl [--input data/auth.txt.gz] [--limit 500000]
+                                     # ingest LANL auth log dataset
 """
 
 import sys
@@ -72,6 +74,13 @@ def cmd_ingest():
     ingest_to_db(db_path=DB_PATH)
 
 
+def cmd_lanl():
+    from data.lanl_adapter import ingest as lanl_ingest
+    gz = sys.argv[2] if len(sys.argv) > 2 else "data/auth.txt.gz"
+    limit = int(sys.argv[3]) if len(sys.argv) > 3 else 500_000
+    lanl_ingest(gz, DB_PATH, limit)
+
+
 COMMANDS = {
     "pipeline": cmd_pipeline,
     "generate": cmd_generate,
@@ -79,6 +88,7 @@ COMMANDS = {
     "score": cmd_score,
     "insights": cmd_insights,
     "ingest": cmd_ingest,
+    "lanl": cmd_lanl,
 }
 
 if __name__ == "__main__":
