@@ -111,7 +111,8 @@ def generate_logs(days: int = 30, output_db: str = "data/iam_logs.db") -> str:
             ))
 
         # Anomaly type 2: credential harvesting burst
-        burst_day = start_time + timedelta(days=random.randint(5, days - 5))
+        burst_offset = random.randint(0, max(0, days - 2))
+        burst_day = start_time + timedelta(days=burst_offset)
         for _ in range(random.randint(50, 100)):
             ts = burst_day + timedelta(minutes=random.randint(0, 30))
             records.append((

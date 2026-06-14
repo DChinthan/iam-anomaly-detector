@@ -13,6 +13,7 @@ Architecture:
 import numpy as np
 import pickle
 from pathlib import Path
+from typing import Optional
 
 import tensorflow as tf
 from tensorflow import keras
@@ -32,7 +33,7 @@ class IAMAutoencoder:
         self.latent_dim = latent_dim
         self.epochs = epochs
         self.scaler = StandardScaler()
-        self.model: keras.Model | None = None
+        self.model: Optional[keras.Model] = None
         self._threshold: float = 0.0
 
     def _build_model(self, input_dim: int) -> keras.Model:

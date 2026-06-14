@@ -9,6 +9,7 @@ import numpy as np
 import pandas as pd
 import pickle
 from pathlib import Path
+from typing import Optional
 from sklearn.ensemble import IsolationForest
 from sklearn.svm import OneClassSVM
 from sklearn.preprocessing import StandardScaler
@@ -32,9 +33,9 @@ class AnomalyDetector:
 
     def __init__(self, contamination: float = 0.05):
         self.contamination = contamination
-        self._iso: Pipeline | None = None
-        self._svm: Pipeline | None = None
-        self._ae: IAMAutoencoder | None = None
+        self._iso: Optional[Pipeline] = None
+        self._svm: Optional[Pipeline] = None
+        self._ae: Optional[IAMAutoencoder] = None
 
     def _make_pipeline(self, model) -> Pipeline:
         return Pipeline([

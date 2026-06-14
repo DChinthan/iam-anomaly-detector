@@ -11,11 +11,12 @@ Falls back to rule-based templates when the key is absent (demo mode).
 
 import os
 from dataclasses import dataclass
+from typing import Optional
 
 import anthropic
 
 MOCK_MODE = not bool(os.getenv("ANTHROPIC_API_KEY"))
-_CLIENT: anthropic.Anthropic | None = None
+_CLIENT = None  # type: Optional[anthropic.Anthropic]
 
 
 def _client() -> anthropic.Anthropic:
