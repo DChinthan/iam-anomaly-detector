@@ -10,10 +10,12 @@ Falls back to rule-based templates when the key is absent (demo mode).
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Optional
 
 import anthropic
+
+from genai import cache as genai_cache
 
 MOCK_MODE = not bool(os.getenv("ANTHROPIC_API_KEY"))
 _CLIENT = None  # type: Optional[anthropic.Anthropic]
@@ -116,14 +118,7 @@ def _mock_alert(user_row: dict) -> SecurityAlert:
     )
 
 
-def analyze_user(user_row: dict) -> SecurityAlert:
-    """
-    Generate a GenAI security alert for a flagged IAM user.
-    Uses Claude when ANTHROPIC_API_KEY is set, otherwise uses rule-based fallback.
-    """
-    if MOCK_MODE:
-        return _mock_alert(user_row)
-
+def _live_alert(user_row: dict) -> SecurityAlert:
     import json
     message = _client().messages.create(
         model="claude-sonnet-4-6",
@@ -143,6 +138,26 @@ def analyze_user(user_row: dict) -> SecurityAlert:
         )
     except Exception:
         return _mock_alert(user_row)
+
+
+def analyze_user(user_row: dict, use_cache: bool = True) -> SecurityAlert:
+    """
+    Generate a GenAI security alert for a flagged IAM user.
+    Uses Claude when ANTHROPIC_API_KEY is set, otherwise uses rule-based fallback.
+    Results are cached (see genai/cache.py) so repeated calls for a user whose
+    score hasn't materially changed don't re-hit the Claude API.
+    """
+    score = user_row["ensemble_score"]
+    if use_cache:
+        cached = genai_cache.get(user_row["user_id"], score)
+        if cached is not None:
+            return SecurityAlert(**cached)
+
+    alert = _mock_alert(user_row) if MOCK_MODE else _live_alert(user_row)
+
+    if use_cache:
+        genai_cache.put(user_row["user_id"], score, asdict(alert))
+    return alert
 
 
 def analyze_batch(scored_df, top_n: int = 5) -> list[SecurityAlert]:

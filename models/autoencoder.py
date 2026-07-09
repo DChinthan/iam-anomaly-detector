@@ -75,6 +75,16 @@ class IAMAutoencoder:
         lo, hi = errors.min(), errors.max()
         return (errors - lo) / (hi - lo + 1e-9)
 
+    @property
+    def threshold(self) -> float:
+        """95th-percentile reconstruction error observed on normal training data."""
+        return self._threshold
+
+    def raw_reconstruction_errors(self, X: np.ndarray) -> np.ndarray:
+        """Unnormalized MSE, comparable directly against `threshold`."""
+        X_scaled = self.scaler.transform(X)
+        return self._reconstruction_errors(X_scaled)
+
     def save(self):
         MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
         self.model.save(MODEL_PATH)

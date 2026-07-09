@@ -17,6 +17,7 @@ from sklearn.pipeline import Pipeline
 
 from features.extractor import FEATURE_COLS
 from models.autoencoder import IAMAutoencoder
+from models import drift
 
 MODEL_PATH = Path("models/saved/ensemble.pkl")
 AE_AVAILABLE = True
@@ -65,6 +66,7 @@ class AnomalyDetector:
         self._ae.fit(X)
 
         self.save()
+        drift.save_baseline(features_df)
         print(f"Ensemble trained on {len(X)} normal user profiles")
         return self
 
@@ -79,15 +81,28 @@ class AnomalyDetector:
         svm_scores = 1 - self._normalize(svm_raw)
 
         ae_scores = self._ae.anomaly_scores(X)
+        ae_raw_errors = self._ae.raw_reconstruction_errors(X)
+        ae_threshold_exceeded = ae_raw_errors > self._ae.threshold
 
         ensemble = iso_scores * 0.40 + svm_scores * 0.30 + ae_scores * 0.30
+        flagged = ensemble > 0.65
 
         result = features_df.copy()
         result["iso_score"] = iso_scores
         result["svm_score"] = svm_scores
         result["ae_score"] = ae_scores
         result["ensemble_score"] = ensemble
-        result["flagged"] = ensemble > 0.65
+        result["flagged"] = flagged
+        # Secondary confirmation signal: the autoencoder's own 95th-percentile
+        # reconstruction-error threshold from training, independent of the
+        # ensemble's 0.65 cutoff. Agreement between the two raises confidence
+        # that a flagged user is a true anomaly rather than a borderline score.
+        result["ae_threshold_exceeded"] = ae_threshold_exceeded
+        result["confidence"] = np.select(
+            [flagged & ae_threshold_exceeded, flagged],
+            ["CONFIRMED", "SUSPECTED"],
+            default="CLEAR",
+        )
         return result
 
     @staticmethod

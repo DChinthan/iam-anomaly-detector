@@ -4,10 +4,11 @@ and injected anomalies for training and demo purposes.
 """
 
 import random
-import sqlite3
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+
+from data.db import get_engine, insert_events
 
 NORMAL_USERS = [f"user_{i:03d}" for i in range(1, 51)]
 ANOMALOUS_USERS = [f"user_{i:03d}" for i in range(51, 56)]
@@ -48,22 +49,7 @@ def _normal_login_hour():
 
 def generate_logs(days: int = 30, output_db: str = "data/iam_logs.db") -> str:
     Path(output_db).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(output_db)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS iam_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT NOT NULL,
-            user_id TEXT NOT NULL,
-            source_ip TEXT NOT NULL,
-            api_call TEXT NOT NULL,
-            region TEXT NOT NULL,
-            session_duration_seconds INTEGER NOT NULL,
-            mfa_used INTEGER NOT NULL,
-            error_code TEXT,
-            is_anomaly INTEGER DEFAULT 0
-        )
-    """)
-    conn.commit()
+    engine = get_engine(output_db)
 
     end_time = datetime.utcnow()
     start_time = end_time - timedelta(days=days)
@@ -128,13 +114,11 @@ def generate_logs(days: int = 30, output_db: str = "data/iam_logs.db") -> str:
             ))
 
     random.shuffle(records)
-    conn.executemany(
-        "INSERT INTO iam_logs (timestamp, user_id, source_ip, api_call, region, "
-        "session_duration_seconds, mfa_used, error_code, is_anomaly) VALUES (?,?,?,?,?,?,?,?,?)",
-        records
-    )
-    conn.commit()
-    conn.close()
+    columns = [
+        "timestamp", "user_id", "source_ip", "api_call", "region",
+        "session_duration_seconds", "mfa_used", "error_code", "is_anomaly",
+    ]
+    insert_events(engine, [dict(zip(columns, row)) for row in records])
 
     print(f"Generated {len(records):,} log entries -> {output_db}")
     return output_db

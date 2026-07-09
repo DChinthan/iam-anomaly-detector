@@ -4,11 +4,12 @@ Each row in the output represents one user's aggregated profile
 over the analysis window.
 """
 
-import sqlite3
 import pandas as pd
 import numpy as np
 from dataclasses import dataclass, field
 from typing import Optional
+
+from data.db import get_engine
 
 
 @dataclass
@@ -117,9 +118,9 @@ class FeatureExtractor:
 
 
 def load_logs(db_path: str = "data/iam_logs.db") -> pd.DataFrame:
-    conn = sqlite3.connect(db_path)
-    df = pd.read_sql_query("SELECT * FROM iam_logs", conn)
-    conn.close()
+    """Loads from SQLite by default; set DATABASE_URL to read from Postgres/RDS instead."""
+    engine = get_engine(db_path)
+    df = pd.read_sql_query("SELECT * FROM iam_logs", engine)
     df["timestamp"] = pd.to_datetime(df["timestamp"])
     return df
 

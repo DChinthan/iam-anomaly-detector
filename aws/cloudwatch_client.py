@@ -8,24 +8,33 @@ Set AWS_MOCK=true (default) to use synthetic data without real AWS creds.
 import os
 import json
 import random
-import sqlite3
 from datetime import datetime, timedelta
 from typing import Optional
 
+from data.db import get_engine, insert_events
+
 MOCK_MODE = os.getenv("AWS_MOCK", "true").lower() == "true"
 
+# Comma-separated list, e.g. "us-east-1,us-west-2,eu-west-1". Falls back to
+# AWS_REGION (single region) for backward compatibility.
+AWS_REGIONS = [
+    r.strip() for r in os.getenv(
+        "AWS_REGIONS", os.getenv("AWS_REGION", "us-east-1")
+    ).split(",") if r.strip()
+]
 
-def _get_boto_client():
+
+def _get_boto_client(region: str):
     import boto3
     return boto3.client(
         "logs",
-        region_name=os.getenv("AWS_REGION", "us-east-1"),
+        region_name=region,
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
     )
 
 
-def _mock_cloudwatch_events(limit: int = 500) -> list[dict]:
+def _mock_cloudwatch_events(region: str, limit: int = 500) -> list[dict]:
     """Returns mock CloudTrail events shaped like CloudWatch Logs Insights results."""
     api_calls = [
         "GetObject", "PutObject", "ListBuckets", "DescribeInstances",
@@ -44,7 +53,7 @@ def _mock_cloudwatch_events(limit: int = 500) -> list[dict]:
             "user_id": random.choice(users),
             "source_ip": random.choice(ips),
             "api_call": random.choice(api_calls),
-            "region": random.choice(["us-east-1", "us-west-2"]),
+            "region": region,
             "session_duration_seconds": random.randint(60, 3600),
             "mfa_used": int(random.random() > 0.15),
             "error_code": None,
@@ -52,8 +61,8 @@ def _mock_cloudwatch_events(limit: int = 500) -> list[dict]:
     return events
 
 
-def _real_cloudwatch_events(log_group: str, hours: int = 24) -> list[dict]:
-    client = _get_boto_client()
+def _real_cloudwatch_events(log_group: str, region: str, hours: int = 24) -> list[dict]:
+    client = _get_boto_client(region)
     end_ms = int(datetime.utcnow().timestamp() * 1000)
     start_ms = end_ms - hours * 3600 * 1000
 
@@ -88,10 +97,11 @@ def _real_cloudwatch_events(log_group: str, hours: int = 24) -> list[dict]:
             "user_id": record.get("user_id", "unknown"),
             "source_ip": record.get("source_ip", "0.0.0.0"),
             "api_call": record.get("api_call", "Unknown"),
-            "region": record.get("region", "us-east-1"),
+            "region": record.get("region", region),
             "session_duration_seconds": random.randint(60, 3600),
             "mfa_used": 0,
             "error_code": record.get("error_code") or None,
+            "is_anomaly": 0,
         })
     return events
 
@@ -101,22 +111,22 @@ def ingest_to_db(
     log_group: Optional[str] = None,
     hours: int = 24,
 ) -> int:
-    if MOCK_MODE:
-        events = _mock_cloudwatch_events()
-    else:
-        events = _real_cloudwatch_events(log_group or "/aws/cloudtrail/events", hours)
+    """Pulls events from every region in AWS_REGIONS (or AWS_REGION) and merges
+    them into the local store — real IAM monitoring spans multiple regions,
+    which also feeds the `unique_regions` behavioral feature more realistically."""
+    engine = get_engine(db_path)
+    total_inserted = 0
+    for region in AWS_REGIONS:
+        if MOCK_MODE:
+            events = _mock_cloudwatch_events(region)
+        else:
+            events = _real_cloudwatch_events(log_group or "/aws/cloudtrail/events", region, hours)
+        for e in events:
+            e.setdefault("is_anomaly", 0)
+        count = insert_events(engine, events)
+        total_inserted += count
+        print(f"  [{region}] ingested {count} events")
 
-    conn = sqlite3.connect(db_path)
-    inserted = 0
-    for e in events:
-        conn.execute(
-            "INSERT INTO iam_logs (timestamp, user_id, source_ip, api_call, region, "
-            "session_duration_seconds, mfa_used, error_code) VALUES (?,?,?,?,?,?,?,?)",
-            (e["timestamp"], e["user_id"], e["source_ip"], e["api_call"],
-             e["region"], e["session_duration_seconds"], e["mfa_used"], e["error_code"]),
-        )
-        inserted += 1
-    conn.commit()
-    conn.close()
-    print(f"Ingested {inserted} events from {'mock' if MOCK_MODE else 'CloudWatch'}")
-    return inserted
+    print(f"Ingested {total_inserted} events total from "
+          f"{'mock' if MOCK_MODE else 'CloudWatch'} across {len(AWS_REGIONS)} region(s)")
+    return total_inserted
