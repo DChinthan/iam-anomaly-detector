@@ -6,6 +6,8 @@ resource "google_service_account" "scorer" {
   project      = var.gcp_project
   account_id   = "${local.name_prefix}-scorer"
   display_name = "IAM Anomaly Detector scoring service"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_project_iam_member" "scorer_logging_viewer" {
@@ -32,4 +34,6 @@ resource "google_secret_manager_secret_iam_member" "scorer_secret_access" {
   secret_id = var.anthropic_api_key_secret_id
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.scorer.email}"
+
+  depends_on = [google_project_service.required]
 }

@@ -4,6 +4,8 @@ resource "google_pubsub_topic" "iam_events" {
   project = var.gcp_project
   name    = "iam-cloudtrail-events"
   labels  = local.common_labels
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_pubsub_subscription" "iam_events_scorer" {

@@ -5,11 +5,18 @@ Parallel module to `../terraform/` (AWS) — same resources, GCP equivalents,
 depend on `../terraform/`; the two clouds are independent stacks that both
 feed the same provider-agnostic ML pipeline (`models/`, `features/`).
 
-Provisions: a Firestore database, a Cloud Logging sink/bucket for the audit
-logs `gcp/cloud_logging_client.py` consumes, a Pub/Sub topic + subscription
+Provisions: every required GCP API (`apis.tf` — these are disabled by
+default on a fresh project, unlike AWS's CloudWatch/DynamoDB/Lambda), a
+Firestore database, a Cloud Logging sink/bucket for the audit logs
+`gcp/cloud_logging_client.py` consumes, a Pub/Sub topic + subscription
 matching `streaming/pubsub_backend.py`, a container-image Cloud Run service
 running the batch scoring path on a Cloud Scheduler trigger, and a
 least-privilege service account.
+
+The only step this module doesn't own is publishing the scoring service's
+container image — Terraform can't build or push your application code, the
+same way it can't on the AWS side (`infra/terraform/README.md`). Everything
+else, including API enablement, is one `terraform apply`.
 
 This is IaC scaffolding, not a `terraform apply`-and-forget black box —
 review `variables.tf` and adjust for your project before applying.
@@ -40,6 +47,7 @@ terraform apply -var="gcp_project=<project_id>" -var="scorer_image_uri=us-centra
 | `google_pubsub_topic.iam_events` + `google_pubsub_subscription.iam_events_scorer` | (no AWS equivalent provisioned — Kafka/MSK is BYO cluster) | Backs `streaming/pubsub_backend.py` |
 | `google_cloud_run_v2_service.scorer` + `google_cloud_scheduler_job.scorer_schedule` | `aws_lambda_function.scorer` + `aws_cloudwatch_event_rule.scorer_schedule` | Scheduled batch scoring |
 | `google_service_account.scorer` | `aws_iam_role.scorer_lambda` | Least-privilege identity: Logging viewer, Firestore user, Pub/Sub subscriber, optional Secret Manager accessor |
+| `google_project_service.required` (for_each, 8 APIs) | (no equivalent — AWS needs no enablement step) | Enables Logging, Firestore, Pub/Sub, Cloud Run, Cloud Scheduler, IAM, Secret Manager, and Resource Manager APIs before any dependent resource is created |
 
 ## Regional model — read before touching `gcp_regions`
 

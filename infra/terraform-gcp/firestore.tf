@@ -8,6 +8,8 @@ resource "google_firestore_database" "anomaly_results" {
   name        = "(default)"
   location_id = var.gcp_regions[0]
   type        = "FIRESTORE_NATIVE"
+
+  depends_on = [google_project_service.required]
 }
 
 output "firestore_database_name" {

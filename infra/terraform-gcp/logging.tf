@@ -9,6 +9,8 @@ resource "google_logging_project_bucket_config" "audit_logs" {
   location       = var.gcp_regions[0]
   bucket_id      = "${local.name_prefix}-audit-logs"
   retention_days = var.log_retention_days
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_logging_project_sink" "audit_logs" {

@@ -46,6 +46,8 @@ resource "google_cloud_run_v2_service" "scorer" {
     # mirrors infra/terraform/lambda.tf's ignore_changes on image_uri.
     ignore_changes = [template[0].containers[0].image]
   }
+
+  depends_on = [google_project_service.required]
 }
 
 # Cloud Run services aren't public by default, so Cloud Scheduler needs its
@@ -54,6 +56,8 @@ resource "google_service_account" "scheduler_invoker" {
   project      = var.gcp_project
   account_id   = "${local.name_prefix}-scheduler"
   display_name = "Invokes the scoring Cloud Run service on a schedule"
+
+  depends_on = [google_project_service.required]
 }
 
 resource "google_cloud_run_v2_service_iam_member" "scheduler_invoker" {
@@ -81,4 +85,6 @@ resource "google_cloud_scheduler_job" "scorer_schedule" {
       service_account_email = google_service_account.scheduler_invoker.email
     }
   }
+
+  depends_on = [google_project_service.required]
 }
