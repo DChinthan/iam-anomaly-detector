@@ -17,6 +17,7 @@ from features.extractor import load_logs, extract_features
 from models.detector import AnomalyDetector
 from aws.dynamodb_store import DynamoDBStore
 from genai.insights import analyze_batch, SecurityAlert
+from dashboard.auth import require_login, can
 
 st.set_page_config(
     page_title="IAM Anomaly Detector",
@@ -25,6 +26,10 @@ st.set_page_config(
 )
 
 DB_PATH = "data/iam_logs.db"
+
+# ── auth ──────────────────────────────────────────────────────────────────────
+
+user = require_login()
 
 # ── sidebar ───────────────────────────────────────────────────────────────────
 
@@ -37,10 +42,13 @@ st.sidebar.markdown(
 st.sidebar.header("Controls")
 days = st.sidebar.slider("Simulation window (days)", 7, 90, 30)
 threshold = st.sidebar.slider("Anomaly score threshold", 0.40, 0.95, 0.65, 0.05)
-run_genai = st.sidebar.toggle("GenAI Security Insights", value=True)
+run_genai = st.sidebar.toggle("GenAI Security Insights", value=True) and can(user, "view_genai")
 
-if st.sidebar.button("🔄 Regenerate Data & Retrain"):
-    st.cache_data.clear()
+if can(user, "retrain"):
+    if st.sidebar.button("🔄 Regenerate Data & Retrain"):
+        st.cache_data.clear()
+else:
+    st.sidebar.caption("Retrain controls require the admin role.")
 
 # ── data pipeline ─────────────────────────────────────────────────────────────
 
@@ -129,11 +137,16 @@ with col_left:
 with col_right:
     st.subheader("Flagged Users")
     flagged = scored_df[scored_df["flagged"]].sort_values("ensemble_score", ascending=False)
+    display_cols = [
+        "ensemble_score", "iso_score", "svm_score", "ae_score", "confidence",
+        "suspicious_api_ratio", "off_hours_ratio", "burst_score",
+    ]
+    if can(user, "view_user_ids"):
+        display_cols = ["user_id"] + display_cols
+    else:
+        st.caption("User identities hidden — viewer role sees aggregate signals only.")
     st.dataframe(
-        flagged[[
-            "user_id", "ensemble_score", "iso_score", "svm_score", "ae_score",
-            "suspicious_api_ratio", "off_hours_ratio", "burst_score",
-        ]].round(3),
+        flagged[display_cols].round(3),
         use_container_width=True,
         hide_index=True,
     )
