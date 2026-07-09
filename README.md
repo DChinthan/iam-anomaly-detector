@@ -257,7 +257,7 @@ iam-anomaly-detector/
 | True Positive Rate | >95% |
 | False Positive Rate | <10% |
 | Users analyzed | 55 (50 normal + 5 adversarial) |
-| Log events | ~120,000 over 30 days |
+| Log events | ~75,000-90,000 over 30 days (varies per run — daily API-call volume per user is randomized, not seeded) |
 | Automated tests | 40 passing (pytest, zero cloud credentials required) |
 | IaC validation | `terraform validate`: Success on both AWS and GCP modules |
 
