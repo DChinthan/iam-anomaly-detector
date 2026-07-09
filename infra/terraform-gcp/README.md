@@ -23,12 +23,15 @@ review `variables.tf` and adjust for your project before applying.
 
 ## Deploy
 
+**The container image is not ready to build yet.** `infra/lambda/scorer/handler.py` is a Lambda-style `handler(event, context)` function that assumes it's running under `/var/task` — it does not start an HTTP server, which is what Cloud Run requires (Cloud Run sends requests over HTTP to a port your container listens on; a bare Lambda handler function never gets called). Reusing `infra/lambda/scorer/Dockerfile` as-is will build and push successfully, but the resulting service will fail Cloud Run's health check, because nothing in the image binds to `$PORT`.
+
+Before this module is actually deployable, someone needs to write a small HTTP wrapper (e.g. Flask/FastAPI, or the Functions Framework) around the same `ingest -> score -> persist` steps `handler.py` already runs, and build a GCP-specific Dockerfile around that instead of pointing at the Lambda one. That's real, not-yet-done work, not a placeholder detail.
+
 ```bash
-# 1. Build and push the scoring service's container image (same handler
-#    pattern as infra/lambda/scorer/, adapted for Cloud Run — see gcp/README.md)
+# 1. Build and push a Cloud-Run-compatible image once the HTTP wrapper above exists
 cd ../../                      # project root
 gcloud artifacts repositories create iam-anomaly-scorer --repository-format=docker --location=us-central1
-docker build -f infra/lambda/scorer/Dockerfile -t us-central1-docker.pkg.dev/<project_id>/iam-anomaly-scorer/scorer:latest .
+docker build -f infra/gcp/scorer/Dockerfile -t us-central1-docker.pkg.dev/<project_id>/iam-anomaly-scorer/scorer:latest .   # path doesn't exist yet
 docker push us-central1-docker.pkg.dev/<project_id>/iam-anomaly-scorer/scorer:latest
 
 # 2. Plan and apply
@@ -66,5 +69,6 @@ terraform validate
 
 ## Known gaps
 
+- **The Cloud Run scoring service has no working entrypoint yet** — see the Deploy section above. This is the biggest gap in this module; the Terraform is correct, the application code to put inside the container isn't written.
 - The Pub/Sub streaming consumer (`streaming/stream_processor.py` via `STREAM_MODE=pubsub`) is meant to run as a long-lived process (GKE/Cloud Run with no request timeout, or a Compute Engine VM), not the scheduled Cloud Run service above — that one only runs the batch scoring path, same split as the AWS Lambda/streaming-consumer split.
 - No VPC Service Controls / private networking included — add if Firestore/Pub/Sub need to be reached from a VPC-only workload.

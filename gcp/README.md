@@ -51,7 +51,7 @@ has no separate emulator/real code path because of this.
    - `roles/pubsub.subscriber` — consume the streaming topic
    - `roles/secretmanager.secretAccessor` — only if `ANTHROPIC_API_KEY` is stored in Secret Manager
 2. Set `GCP_PROJECT`, `GCP_MOCK=false`, and (optionally) `GCP_REGIONS`.
-3. Deploy the supporting infra with `../infra/terraform-gcp/` (Firestore database, Cloud Logging sink, Pub/Sub topic/subscription, scoring Cloud Run service).
+3. Deploy the supporting infra with `../infra/terraform-gcp/` (Firestore database, Cloud Logging sink, Pub/Sub topic/subscription, scoring Cloud Run service — **the Cloud Run service has no working entrypoint yet**, see `../infra/terraform-gcp/README.md`'s Deploy section before relying on it).
 
 ## The Cloud Logging "region" caveat — read this before assuming AWS parity
 

@@ -10,82 +10,86 @@
 [![Tests](https://img.shields.io/badge/tests-40%20passing-brightgreen)](tests/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
 
-A cloud-native platform that detects anomalous IAM/CloudTrail user behavior using an unsupervised ML ensemble, with a GenAI intelligence layer (Claude) that turns flagged users into analyst-grade incident reports. Ingestion, storage, and streaming are fully implemented on **both AWS and GCP** behind one provider-agnostic interface — the same ML and business logic runs on either cloud, selected at runtime.
+> Documentation snapshot: verified against application code as of commit `b35ba80`. If you're reading this on a later commit, check `git log` — the code may have moved on since these numbers were run.
 
-All models are trained exclusively on normal behavior — no labeled attack data required.
+I built this to flag anomalous IAM/CloudTrail user behavior — stolen credentials, over-privileged accounts, off-hours access — using an unsupervised ML ensemble instead of signature rules, since credential-based attacks use valid auth and don't trip anything signature-based. Claude writes a plain-language incident summary for whatever gets flagged. It runs against AWS or GCP, or fully offline with synthetic data — no cloud account needed to try it.
 
-Contributions, issues, and forks are welcome. See [Project Structure](#project-structure) below for where things live.
-
----
-
-## Architecture
-
-```
-┌─ Ingestion — batch or streaming, either cloud ─────────────────────────────┐
-│  AWS: CloudWatch Logs Insights (multi-region) · DynamoDB                   │
-│  GCP: Cloud Logging (Audit Logs)             · Firestore                   │
-│  Streaming: Kafka | GCP Pub/Sub | in-memory (dev)                          │
-│  Also: synthetic log generator · real-world LANL dataset adapter           │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                 │ normalized IAM events
-                                 ▼
-┌─ Storage (data/db.py) ──────────────────────────────────────────────────────┐
-│  SQLAlchemy engine — SQLite (dev) or Postgres/RDS/Cloud SQL (prod)          │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                 ▼
-┌─ Feature Engineering (features/extractor.py) ───────────────────────────────┐
-│  12 behavioral features per user: call volume, session duration,           │
-│  geographic deviation, API call patterns, MFA rate, burst score, ...       │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                 ▼
-┌─ Ensemble Anomaly Detection (models/detector.py) ───────────────────────────┐
-│  Isolation Forest (40%) + One-Class SVM (30%) + TensorFlow Autoencoder     │
-│  (30%) → weighted ensemble score + AE-threshold confidence tier            │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                 ▼
-┌─ Model Drift Monitoring (models/drift.py) ──────────────────────────────────┐
-│  PSI + Kolmogorov-Smirnov test vs. training-time baseline                  │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                 ▼
-┌─ GenAI Security Intelligence (genai/insights.py) ───────────────────────────┐
-│  Claude analyzes each flagged user → attack pattern + signals +            │
-│  remediation, cached to control cost/latency on repeated runs              │
-└───────────────────────────────┬──────────────────────────────────────────┘
-                                 ▼
-┌─ Streamlit Dashboard (dashboard/app.py) ─────────────────────────────────────┐
-│  Role-gated (admin/analyst/viewer) — GenAI alert cards, score              │
-│  distribution, model-comparison scatter, feature heatmap, timeline         │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-Deployed via two independent, parallel Terraform (HCL) modules:
-infra/terraform/ (AWS) and infra/terraform-gcp/ (GCP) — both terraform validate-clean.
-```
+All three models train only on normal behavior. No labeled attack data required, because in practice you rarely have any.
 
 ---
 
-## Platform Capabilities
+## What's actually shared vs. cloud-specific
 
-- **Cloud-portable by design** — `CLOUD_PROVIDER=aws|gcp` routes ingestion, storage, and streaming for the entire CLI; the ML and business logic never branches on provider.
-- **Unsupervised ML ensemble** — Isolation Forest + One-Class SVM + TF Autoencoder trained on normal IAM profiles; no attack labels needed.
-- **Confidence-tiered alerting** — the autoencoder's own 95th-percentile reconstruction-error threshold is checked independently of the ensemble cutoff, so a flagged user is marked `CONFIRMED` when both signals agree and `SUSPECTED` when only one does — cuts alert-fatigue noise for the analyst reading the output.
-- **Real-time event streaming** — Kafka and GCP Pub/Sub as interchangeable backends behind one producer/consumer interface, with incremental per-user rescoring as events arrive, alongside the batch path.
-- **Model drift monitoring** — PSI + KS statistical tests against a saved training-time baseline, so silent accuracy decay gets caught instead of ignored.
-- **GenAI incident reports** — Claude generates natural-language security alerts with attack pattern classification and remediation steps; a rule-based fallback keeps the system fully functional with zero external API dependency.
-- **Role-based access control** — admin/analyst/viewer roles gate retrain controls, GenAI panels, and user-identifying data on the dashboard itself.
-- **Infrastructure as Code** — two independent Terraform modules (AWS and GCP) provisioning storage, log aggregation, scheduled scoring compute, and least-privilege IAM/service accounts.
-- **Database-agnostic persistence** — SQLite for local development, Postgres (RDS/Aurora or Cloud SQL) for production, via one SQLAlchemy abstraction with no code changes between environments.
-- **Zero-cost local development** — every cloud backend (AWS, GCP, Kafka, Pub/Sub) has a working mock mode, so the full test suite and every CLI command run without cloud credentials.
+This is the part I want to be precise about, because "cloud-portable" gets thrown around loosely. Here's what's actually true, verified by checking imports, not by reading my own docstrings:
+
+**Genuinely shared — zero `aws.*` or `gcp.*` imports, same code regardless of provider:**
+`features/extractor.py`, `models/detector.py`, `models/autoencoder.py`, `models/drift.py`, `genai/insights.py`, `genai/cache.py`, `data/db.py`, `streaming/event_stream.py` (branches internally on a `STREAM_MODE` string, not on provider), `streaming/stream_processor.py` (takes its persistence backend as a constructor argument, so it doesn't care which store is injected).
+
+**Cloud-specific adapters — separate files per provider, unified only by matching method signatures (duck typing), not shared code:**
+`aws/cloudwatch_client.py` vs. `gcp/cloud_logging_client.py` (ingestion), `aws/dynamodb_store.py` vs. `gcp/firestore_store.py` (persistence), `streaming/pubsub_backend.py` (GCP-only — Kafka isn't cloud-specific so it's handled inline in `event_stream.py`), and the two Terraform modules (`infra/terraform/` vs. `infra/terraform-gcp/`), which are entirely separate and don't share HCL.
+
+**Where this breaks down — the dashboard is not cloud-portable today:**
+`dashboard/app.py` imports `DynamoDBStore` directly at module level and has no `CLOUD_PROVIDER` awareness at all. Whatever you set that env var to, the dashboard always talks to DynamoDB and always regenerates its own synthetic dataset — it never reads real ingested events from either cloud. The CLI (`main.py`) genuinely routes between AWS and GCP; the dashboard doesn't yet. I'm noting this here instead of letting the architecture diagram imply otherwise.
+
+```mermaid
+flowchart TD
+    subgraph ing["Ingestion — cloud-specific"]
+        awsin["aws/cloudwatch_client.py<br/>CloudWatch Logs Insights"]
+        gcpin["gcp/cloud_logging_client.py<br/>Cloud Logging"]
+        strm["streaming/event_stream.py<br/>Kafka / Pub-Sub / mock — one shared file"]
+    end
+
+    subgraph core["Shared core — no cloud imports"]
+        db["data/db.py<br/>SQLite / Postgres via SQLAlchemy"]
+        feat["features/extractor.py<br/>12 behavioral features"]
+        ens["models/detector.py + autoencoder.py<br/>ensemble scoring"]
+        drift["models/drift.py<br/>PSI / KS drift check"]
+        genai["genai/insights.py + cache.py<br/>Claude incident reports"]
+    end
+
+    subgraph store["Persistence — cloud-specific"]
+        ddb["aws/dynamodb_store.py"]
+        fs["gcp/firestore_store.py"]
+    end
+
+    subgraph ui["Dashboard — AWS-only, not yet cloud-portable"]
+        dash["dashboard/app.py<br/>hardcoded DynamoDBStore, ignores CLOUD_PROVIDER"]
+    end
+
+    awsin --> db
+    gcpin --> db
+    strm --> db
+    db --> feat --> ens --> drift --> genai
+    genai --> ddb
+    genai --> fs
+    ddb -.-> dash
+```
+
+`main.py` (the CLI) reads `CLOUD_PROVIDER=aws|gcp` once at startup and picks the matching ingestion client and store — that routing is real and it's what the diagram's cloud-specific boxes feed into. The dashboard sits outside that routing.
+
+---
+
+## What it does
+
+- 12 behavioral features per user (off-hours ratio, MFA rate, burst score, suspicious-API ratio, geo deviation, session duration, etc.) — see `features/extractor.py`.
+- Three unsupervised models scored as a weighted ensemble: Isolation Forest (40%), One-Class SVM (30%), a small TensorFlow autoencoder (30%). Trained only on normal data.
+- A second confidence signal: the autoencoder's own 95th-percentile reconstruction-error threshold is checked independently of the 0.65 ensemble cutoff. If both agree, the user is marked `CONFIRMED`; if only the ensemble crosses threshold, it's `SUSPECTED`. This tells you which flags are worth looking at first without re-deriving it from the raw scores yourself.
+- PSI + Kolmogorov-Smirnov drift check against a saved training-time baseline, so a model that's quietly gone stale shows up as a number instead of nothing.
+- Claude writes a short incident summary (attack pattern, key signals, one-line recommendation) for each flagged user, with a rule-based fallback if no API key is set — the pipeline runs the same either way. Responses are cached by `(user_id, score bucket)` so re-running the dashboard doesn't re-call the API for a user whose score hasn't moved.
+- Streaming path (Kafka / GCP Pub/Sub / in-memory) that rescoring incrementally as events arrive, alongside the batch path. See the Limitations section below for the real tradeoff this introduces.
+- Dashboard login gated by three roles (admin/analyst/viewer) — see the cloud-portability caveat above for what this dashboard does and doesn't do.
+- Two Terraform modules, one per cloud, both pass `terraform validate` — neither has been applied to a real account (also covered in Limitations).
 
 ---
 
 ## Behavioral Features
 
-| Feature | Description | Attack Signal |
+| Feature | Description | Signal it's meant to catch |
 |---|---|---|
 | `total_api_calls` | Calls per day over the window | Automated credential abuse |
 | `avg_session_duration` / `max_session_duration` | Time between first and last call per session | Persistent unauthorized sessions |
 | `geo_deviation_score` | Unique /24 subnets used | Lateral movement / IP hopping |
-| `suspicious_api_ratio` | % calls to privilege-escalation APIs | CreateAccessKey, GetSecretValue, DeleteTrail |
+| `suspicious_api_ratio` | % calls to a fixed list of privilege-escalation APIs | CreateAccessKey, GetSecretValue, DeleteTrail (AWS action names — see Limitations for the GCP caveat) |
 | `off_hours_ratio` | % activity between 10pm–6am | Compromised creds used outside business hours |
 | `mfa_usage_rate` | MFA present on API calls | Stolen long-lived access keys |
 | `burst_score` | Max calls in any 30-min window | Automated credential harvesting |
@@ -98,82 +102,51 @@ infra/terraform/ (AWS) and infra/terraform-gcp/ (GCP) — both terraform validat
 ## Quickstart
 
 ```bash
-# 1. Install dependencies
 pip install -r requirements.txt
-
-# 2. Run the full pipeline (generate → train → score → insights)
-python main.py pipeline
-
-# 3. Launch the real-time Streamlit dashboard
-streamlit run dashboard/app.py
+python main.py pipeline          # generate synthetic data -> train -> score -> insights
+streamlit run dashboard/app.py   # dashboard, always synthetic AWS-mode data (see caveat above)
 ```
 
-Copy `.env.example` to `.env` for the full list of configuration options — every default runs fully locally with zero cloud credentials.
+Copy `.env.example` to `.env` for every configuration option. Everything above runs with no cloud credentials.
 
-### Option B: Real-world dataset (LANL Unified Host and Network Dataset)
+### Real-world data: LANL dataset — schema-compatible, not benchmarked
 
-The [LANL Comprehensive Multi-Source Cybersecurity Events](https://csr.lanl.gov/data/cyber1/) dataset contains 58 days of de-identified authentication logs from Los Alamos National Laboratory — millions of real enterprise auth events used in dozens of published security papers.
+The [LANL Comprehensive Multi-Source Cybersecurity Events dataset](https://csr.lanl.gov/data/cyber1/) has real de-identified auth logs from Los Alamos National Lab. `data/lanl_adapter.py` maps its format to this project's event schema and runs it through the same pipeline.
+
+Be clear about what this does and doesn't prove: the adapter ingests LANL's raw `auth.txt.gz` events, but it does **not** ingest LANL's companion `redteam.txt.gz` file — the ground-truth list of actually-compromised logins that dataset ships specifically for validating detectors. Every row currently gets `is_anomaly=0` by default. So running this dataset through the pipeline demonstrates the schema mapping works on real, messy, real-world-shaped data — it does not give you a precision/recall number against real attacks. If you want that, wiring up the redteam labels is the next step, and I haven't done it yet.
 
 ```bash
-# 1. Visit csr.lanl.gov/data/cyber1/ and accept the free data use agreement
-# 2. Download auth.txt.gz (~1.5 GB) and place it in data/
-
-# 3. Ingest the first 500k events (≈ 40 MB uncompressed, plenty for the models)
 python main.py lanl data/auth.txt.gz 500000
-
-# 4. Train and score on real data
 python main.py train
 python main.py score
-streamlit run dashboard/app.py
 ```
 
-The LANL adapter (`data/lanl_adapter.py`) maps authentication events to the IAM log schema: maps `auth_type` + `logon_type` to API call equivalents, derives session durations from LogOn/LogOff pairs, and assigns stable synthetic IPs from computer names.
-
----
-
-### Multi-cloud configuration
+### Multi-cloud (CLI only — see the dashboard caveat above)
 
 ```bash
-# GenAI alerts via Claude
-export ANTHROPIC_API_KEY=your_key
-
-# Route ingestion/storage/streaming to AWS (default) or GCP
 export CLOUD_PROVIDER=aws   # or: gcp
-
-# AWS — CloudWatch + DynamoDB
 export AWS_MOCK=false
-export AWS_ACCESS_KEY_ID=your_key
-export AWS_SECRET_ACCESS_KEY=your_secret
-export AWS_REGIONS=us-east-1,us-west-2
-export DYNAMODB_TABLE=iam-anomaly-results
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+# or for GCP: GCP_MOCK=false, GCP_PROJECT=..., see gcp/README.md
 
-# GCP — Cloud Logging + Firestore (see gcp/README.md for full setup)
-export GCP_MOCK=false
-export GCP_PROJECT=your-project-id
-export GCP_REGIONS=us-central1,us-east1
-
-python main.py ingest    # pulls from the configured provider
+python main.py ingest
 python main.py train
 python main.py score
 ```
 
-Real-time streaming:
+Streaming and drift check:
 
 ```bash
-python main.py stream-demo 200                    # mock mode, zero infra
-STREAM_MODE=kafka  KAFKA_BROKERS=broker:9092  python main.py stream
-STREAM_MODE=pubsub PUBSUB_EMULATOR_HOST=localhost:8085 python main.py stream
+python main.py stream-demo 200      # mock mode, no infra
+python main.py drift                # PSI/KS report vs. training baseline
 ```
 
-Model drift check and Postgres/RDS/Cloud SQL persistence:
+Postgres instead of local SQLite (RDS, Aurora, or Cloud SQL — same code path):
 
 ```bash
-python main.py drift
-
 DATABASE_URL=postgresql+psycopg2://user:pass@host:5432/iam_anomaly python main.py pipeline
 ```
-
-See `.env.example` for every configuration option, and `gcp/README.md` for GCP-specific setup (service account roles, Pub/Sub emulator).
 
 ---
 
@@ -181,41 +154,17 @@ See `.env.example` for every configuration option, and `gcp/README.md` for GCP-s
 
 ```
 iam-anomaly-detector/
-├── data/
-│   ├── log_generator.py        # Synthetic IAM log generation
-│   ├── lanl_adapter.py         # Real-world LANL dataset adapter
-│   └── db.py                   # SQLite (dev) / Postgres — RDS or Cloud SQL (prod) engine abstraction
-├── features/
-│   └── extractor.py            # FeatureExtractor class — 12 behavioral features
-├── models/
-│   ├── autoencoder.py          # TensorFlow/Keras Dense Autoencoder (IAMAutoencoder class)
-│   ├── detector.py             # AnomalyDetector ensemble class (IF + SVM + AE), confidence tiering
-│   └── drift.py                # PSI/KS-based model drift detection vs. training baseline
-├── genai/
-│   ├── insights.py             # Claude-powered GenAI security alert generation
-│   └── cache.py                # TTL cache for GenAI alerts (cost/latency control)
-├── aws/
-│   ├── cloudwatch_client.py    # Multi-region CloudWatch Logs ingestion (boto3)
-│   └── dynamodb_store.py       # DynamoDB NoSQL persistence (DynamoDBStore class)
-├── gcp/
-│   ├── cloud_logging_client.py # Cloud Logging / Audit Log ingestion (google-cloud-logging)
-│   ├── firestore_store.py      # Firestore NoSQL persistence (FirestoreStore class)
-│   └── README.md               # GCP setup, IAM roles, regional-model notes
-├── streaming/
-│   ├── event_stream.py         # Kafka | GCP Pub/Sub | in-memory producer & consumer
-│   ├── pubsub_backend.py       # GCP Pub/Sub backend (emulator-compatible)
-│   ├── stream_processor.py     # Incremental per-user rescoring off the live stream
-│   └── simulate_producer.py    # Publishes synthetic live events
-├── dashboard/
-│   ├── app.py                  # Streamlit real-time dashboard (Plotly charts)
-│   └── auth.py                 # Role-based access control (admin/analyst/viewer)
-├── infra/
-│   ├── terraform/               # AWS: DynamoDB, CloudWatch, scoring Lambda, IAM, Cognito
-│   ├── terraform-gcp/           # GCP: Firestore, Cloud Logging, Pub/Sub, Cloud Run, IAM
-│   └── lambda/scorer/           # Container-image Lambda handler for scheduled scoring
-├── tests/                      # 40 automated tests, zero cloud credentials required
-├── main.py                     # CLI: pipeline / stream / drift / ingest / ... (CLOUD_PROVIDER-aware)
-├── .env.example                 # Every configuration option, documented
+├── data/                 # log_generator.py, lanl_adapter.py, db.py (SQLite/Postgres)
+├── features/extractor.py # 12 behavioral features — shared, no cloud imports
+├── models/               # detector.py, autoencoder.py, drift.py — shared, no cloud imports
+├── genai/                # insights.py, cache.py — shared, no cloud imports
+├── aws/                  # cloudwatch_client.py, dynamodb_store.py — AWS-specific
+├── gcp/                  # cloud_logging_client.py, firestore_store.py — GCP-specific
+├── streaming/            # event_stream.py (shared), pubsub_backend.py (GCP), stream_processor.py (shared)
+├── dashboard/            # app.py (AWS-only, see caveat), auth.py (role-based login)
+├── infra/                # terraform/ (AWS), terraform-gcp/ (GCP), lambda/scorer/ (Lambda handler)
+├── tests/                # 40 tests
+├── main.py               # CLI, CLOUD_PROVIDER-aware routing
 └── requirements.txt
 ```
 
@@ -223,45 +172,39 @@ iam-anomaly-detector/
 
 ## ML Model Details
 
-### Isolation Forest
-- 300 estimators, contamination = 0.05
-- Isolates anomalies by randomly partitioning feature space
-- Anomalies require fewer splits → shorter path lengths
+**Isolation Forest** — 300 estimators, contamination 0.05. Tree-based, isolates anomalies by random partitioning.
 
-### One-Class SVM
-- RBF kernel, nu = 0.05
-- Learns a hypersphere around normal behavior in kernel space
-- Points outside the boundary are classified as anomalies
+**One-Class SVM** — RBF kernel, `nu` reuses the same 0.05 contamination value. Hypersphere around normal behavior in kernel space.
 
-### TensorFlow Autoencoder
-- Architecture: Dense 12 → 8 → 4 → 8 → 12
-- Trained to minimize reconstruction MSE on normal user profiles
-- At inference: `anomaly_score = MSE(input, reconstruction)`, normalized to [0, 1]
-- Its 95th-percentile training-reconstruction-error threshold backs the confidence tier below
+**TensorFlow Autoencoder** — Dense 12→8→4→8→12, trained to minimize reconstruction MSE. `anomaly_score = MSE(input, reconstruction)`, normalized to [0, 1]. Its 95th-percentile training-error threshold backs the confidence tier.
 
-### Ensemble
-- Weighted combination: 40% IF + 30% SVM + 30% AE
-- Users with ensemble score > 0.65 are flagged for investigation
-- **Confidence tiering**: the AE's own threshold is checked independently (`ae_threshold_exceeded`). A flagged user is `CONFIRMED` when both signals agree, `SUSPECTED` when only the ensemble score crosses 0.65 — separates high-confidence hits from borderline ones for the analyst.
+**Ensemble** — `0.40*IF + 0.30*SVM + 0.30*AE`, flagged above 0.65. Confirmed when the AE's own threshold agrees, suspected when only the ensemble crosses.
 
-### Model Drift Monitoring
-- Population Stability Index (PSI) + Kolmogorov-Smirnov test per feature against a training-time baseline, snapshotted automatically on every `fit()`
-- Run via `python main.py drift`; thresholds at PSI > 0.10 (warn) and > 0.25 (alert)
+None of these numbers — the 40/30/30 weights, the 0.65 threshold, `n_estimators=300`, `contamination=0.05`, `latent_dim=4`, `epochs=80` — have been tuned against labeled data. They're reasonable starting defaults, not the output of a grid search or cross-validation. See Limitations.
+
+**Model drift** — PSI + Kolmogorov-Smirnov per feature against a training-time baseline snapshotted on every `fit()`. `python main.py drift`. Warn above PSI 0.10, alert above 0.25.
 
 ---
 
-## Benchmark Results
+## Results — proof of concept, not a validated benchmark
 
-| Metric | Value |
-|---|---|
-| True Positive Rate | >95% |
-| False Positive Rate | <10% |
-| Users analyzed | 55 (50 normal + 5 adversarial) |
-| Log events | ~75,000-90,000 over 30 days (varies per run — daily API-call volume per user is randomized, not seeded) |
-| Automated tests | 40 passing (pytest, zero cloud credentials required) |
-| IaC validation | `terraform validate`: Success on both AWS and GCP modules |
+```
+Users: 55 (50 normal + 5 synthetically injected anomalous)
+Log events: ~75,000-90,000 over 30 days (varies per run — not seeded)
+TPR: 100%   FPR: 0%   (most recent run; verified fresh, not a historical figure)
+```
 
-Injected anomaly patterns: off-hours access from suspicious IPs, privilege escalation API bursts, missing MFA with high session duration, credential harvesting (CreateAccessKey + GetSecretValue bursts).
+Read that correctly: this is one run against synthetic data with injected, labeled anomaly patterns (off-hours access from suspicious IPs, privilege-escalation API bursts, missing MFA, credential-harvesting bursts). Injected anomalies are cleaner and more separable than real attacker behavior that's actively trying to blend in. This number tells you the ensemble can separate an obvious synthetic signal from normal behavior — it is not a claim about real-world detection accuracy, because there's no real-world ground truth run yet (see the LANL section above).
+
+Reproduce it:
+
+```bash
+rm -f data/iam_logs.db && python main.py pipeline
+```
+
+Expect the exact event count and TPR/FPR to vary slightly between runs since the log generator doesn't use a fixed random seed for daily call volume.
+
+Automated tests: `terraform validate` passes on both IaC modules (Success, checked directly, not from memory).
 
 ---
 
@@ -272,14 +215,13 @@ Injected anomaly patterns: off-hours access from suspicious IPs, privilege escal
 | ML models | scikit-learn (IsolationForest, OneClassSVM), TensorFlow/Keras |
 | GenAI | Anthropic Claude API |
 | Feature engineering | pandas, numpy, scipy |
-| Relational storage | SQLite (dev), Postgres — AWS RDS/Aurora or GCP Cloud SQL (prod), via SQLAlchemy |
-| NoSQL storage | AWS DynamoDB (boto3), GCP Firestore (google-cloud-firestore) |
+| Relational storage | SQLite (dev), Postgres — RDS/Aurora or Cloud SQL (prod), via SQLAlchemy |
+| NoSQL storage | AWS DynamoDB, GCP Firestore |
 | Log ingestion | AWS CloudWatch Logs Insights, GCP Cloud Logging |
-| Event streaming | Kafka (confluent-kafka), GCP Pub/Sub (google-cloud-pubsub) |
+| Event streaming | Kafka (confluent-kafka), GCP Pub/Sub |
 | Infrastructure as Code | Terraform (AWS + Google providers), Docker |
 | Dashboard | Streamlit, Plotly |
-| Testing | pytest (40 tests) |
-| Version control | Git |
+| Testing | pytest |
 
 ---
 
@@ -289,7 +231,36 @@ Injected anomaly patterns: off-hours access from suspicious IPs, privilege escal
 python -m pytest tests/ -q
 ```
 
-40 tests across 6 files cover feature extraction, the ML ensemble, both cloud storage backends (AWS + GCP), the streaming layer, and the synthetic log generator — every backend has a mock mode, so no cloud credentials or emulators are required to run the full suite.
+40 tests, 6 files, verified passing at the commit noted at the top of this file:
+
+| File | Tests | Covers |
+|---|---|---|
+| `test_feature_extractor.py` | 15 | Per-feature correctness |
+| `test_detector.py` | 6 | Ensemble fit/score/save/load, confidence tiering |
+| `test_log_generator.py` | 6 | Schema, anomaly injection, timestamp validity |
+| `test_dynamodb_store.py` | 5 | AWS mock-mode CRUD |
+| `test_firestore_store.py` | 5 | GCP mock-mode CRUD |
+| `test_pubsub_backend.py` | 3 | Streaming round-trip (mocked), lazy-import safety |
+
+Every backend has a mock mode, so none of this needs cloud credentials.
+
+---
+
+## Limitations / Known Gaps / What I'd Improve Next
+
+These are real, specific things I found by checking the code, not a generic disclaimer paragraph:
+
+1. **Dashboard isn't cloud-portable.** `dashboard/app.py` hardcodes `DynamoDBStore` and ignores `CLOUD_PROVIDER` entirely — it always writes to DynamoDB and always uses freshly generated synthetic data, never real ingested events from either cloud. Fixing this means threading the same store-injection pattern `StreamProcessor` already uses into the dashboard.
+2. **Dashboard auth isn't backed by a real identity provider.** `dashboard/auth.py` is a `DASHBOARD_USERS` env var, SHA-256 hashed, checked in-process. Fine for local dev, not something you'd point real users at. Cognito is scaffolded in `infra/terraform/cognito.tf` but nothing wires the dashboard to it.
+3. **GCP Cloud Run scoring service has no real entrypoint.** `infra/terraform-gcp/cloud_run.tf` references a container image, but the only application code that exists (`infra/lambda/scorer/handler.py`) is a Lambda-style `handler(event, context)` function that assumes `/var/task` — it would not run correctly as a Cloud Run service, which needs an HTTP server listening on `$PORT`. That adapter doesn't exist yet.
+4. **DynamoDB GSI type mismatch.** `infra/terraform/dynamodb.tf` types the `flagged` GSI key as a String, but `aws/dynamodb_store.py` writes it as a native Python bool via boto3. The index wouldn't actually match real writes without changing one side or the other.
+5. **`terraform validate` is not `terraform apply`.** Both modules pass validation; neither has ever been applied against a real AWS or GCP account. Real applies can surface things validation can't — quota limits, region availability, IAM propagation delays, typos in resource references that only fail at plan/apply time.
+6. **No real-world validated detection rate.** The only benchmark is the synthetic proof-of-concept above. The LANL adapter proves schema compatibility, not detection accuracy, since the ground-truth redteam labels aren't wired in (see above).
+7. **Hyperparameters are defaults, not tuned.** Ensemble weights, the 0.65 threshold, Isolation Forest's `n_estimators`/`contamination`, the autoencoder's `latent_dim`/`epochs` — none of these came from cross-validation or a grid search against labeled data.
+8. **GenAI caching reduces redundant calls, it doesn't cap spend.** `genai/cache.py` skips a repeat Claude call for a user whose score hasn't moved, but there's no hard rate limit or budget ceiling — a caller that hammers `analyze_batch` on genuinely new data would still hit the API at whatever pace it's called.
+9. **`suspicious_api_ratio` is AWS-shaped.** The suspicious-API list is a fixed set of AWS action names (`CreateAccessKey`, `AttachUserPolicy`, etc.). On GCP-sourced data this feature reads near zero even for genuinely suspicious activity, since GCP method names look completely different. The other 11 features are schema-based and work the same regardless of source.
+10. **Streaming trades accuracy for latency.** Incremental rescoring uses small rolling windows (20 events) that produce noisier features — especially burst score — than the 30-day batch baseline, so the streaming path over-flags relative to batch. This is a real tradeoff, not a bug to be fixed for free.
+11. **No CI pipeline in this repo.** Tests and `terraform validate` are run manually. There's no `.github/workflows` gating a PR on either.
 
 ---
 
