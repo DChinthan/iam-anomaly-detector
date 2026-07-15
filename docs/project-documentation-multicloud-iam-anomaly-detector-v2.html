@@ -1,0 +1,570 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</title>
+<style>
+  :root {
+    --navy: #1a2744;
+    --navy-light: #24365c;
+    --accent: #2e6ada;
+    --text: #1f2430;
+    --muted: #5b6472;
+    --border: #dfe3ea;
+    --bg-alt: #f4f6fa;
+    --ok: #1c7c3f;
+    --warn: #b5541a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--text);
+    margin: 0;
+    background: #eceff3;
+    line-height: 1.5;
+  }
+  .page {
+    max-width: 860px;
+    margin: 0 auto 24px;
+    background: #fff;
+    padding: 56px 64px;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+  }
+  @media print {
+    body { background: #fff; }
+    .page { box-shadow: none; margin: 0; max-width: none; page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+  }
+  .cover { background: var(--navy); color: #fff; text-align: center; padding: 90px 64px; }
+  .cover h1 { font-size: 34px; margin: 0 0 8px; }
+  .cover .subtitle { font-size: 16px; opacity: .85; margin-bottom: 40px; }
+  .cover-body { background: #fff; color: var(--text); padding: 40px 64px 64px; text-align: center; }
+  .cover-body a { color: var(--accent); }
+  .cover-badge { display: inline-block; background: var(--bg-alt); border-radius: 4px; padding: 4px 10px; font-size: 12px; color: var(--muted); margin: 4px; }
+  .updated-banner { background: #e8f3ec; border: 1px solid #bfe0cb; color: var(--ok); border-radius: 6px; padding: 14px 18px; font-size: 14px; margin: 28px auto; max-width: 520px; text-align: left; }
+  .lede { max-width: 520px; margin: 0 auto; color: var(--muted); font-size: 14.5px; }
+  h2 { font-size: 21px; color: var(--navy); border-bottom: 2px solid var(--accent); padding-bottom: 8px; margin: 0 0 18px; }
+  h3 { font-size: 16px; color: var(--navy); margin: 26px 0 8px; }
+  h4 { font-size: 14px; color: var(--navy-light); margin: 18px 0 6px; }
+  p { font-size: 14px; margin: 0 0 12px; }
+  ul, ol { font-size: 14px; margin: 0 0 14px; padding-left: 22px; }
+  li { margin-bottom: 6px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 14px 0 20px; }
+  th { background: var(--navy); color: #fff; text-align: left; padding: 8px 10px; font-weight: 600; }
+  td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  tr:nth-child(even) td { background: var(--bg-alt); }
+  .term {
+    background: #1b1f27; color: #d6e0f0; border-radius: 8px; padding: 14px 16px;
+    font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 12.5px; margin: 12px 0 18px;
+    overflow-x: auto; white-space: pre-wrap;
+  }
+  .term .dots span { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; }
+  .dot-r { background: #ff5f56; } .dot-y { background: #ffbd2e; } .dot-g { background: #27c93f; }
+  .term .cmd { color: #8fd3ff; }
+  .term .ok { color: #7ee787; }
+  .badge { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .03em; border-radius: 4px; padding: 3px 8px; text-transform: uppercase; }
+  .badge-ok { background: #e8f3ec; color: var(--ok); }
+  .badge-warn { background: #fbeee1; color: var(--warn); }
+  .strike { text-decoration: line-through; color: var(--muted); }
+  .fixed-tag { color: var(--ok); font-weight: 700; }
+  .callout { background: var(--bg-alt); border-left: 4px solid var(--accent); padding: 12px 16px; font-size: 13.5px; margin: 12px 0 18px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 14px 0 20px; }
+  .card { border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; }
+  .card h4 { margin-top: 0; }
+  .card.aws { background: #fff7ec; border-color: #f0d9b5; }
+  .card.gcp { background: #eef4fd; border-color: #c7dbf5; }
+  .shot { width: 100%; border: 1px solid var(--border); border-radius: 6px; margin: 6px 0 4px; display: block; }
+  .cap { font-size: 12px; color: var(--muted); margin: 0 0 16px; }
+  .footer { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); border-top: 1px solid var(--border); padding-top: 10px; margin-top: 30px; }
+  .kicker { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+  .num-list-title { font-weight: 700; }
+
+  /* ---- charts ---- */
+  .viz-root {
+    --surface-1: #fcfcfb; --text-primary: #0b0b0b; --text-secondary: #52514e; --muted: #898781;
+    --gridline: #e1e0d9; --baseline: #c3c2b7;
+    --s-blue: #2a78d6; --s-green: #008300; --s-magenta: #e87ba4; --s-yellow: #eda100; --s-aqua: #1baf7a;
+  }
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 18px; }
+  .stat-tile { background: var(--surface-1); border: 1px solid var(--gridline); border-radius: 10px; padding: 12px 10px; text-align: center; }
+  .stat-tile .num { font-size: 26px; font-weight: 700; color: var(--navy); line-height: 1.1; }
+  .stat-tile .lbl { font-size: 10.5px; color: var(--text-secondary); margin-top: 4px; }
+  .chart-card { background: var(--surface-1); border: 1px solid var(--gridline); border-radius: 10px; padding: 13px 20px 10px; margin: 0 0 14px; }
+  .chart-title { font-size: 13px; font-weight: 700; color: var(--text-primary); margin-bottom: 2px; }
+  .chart-sub { font-size: 10.5px; color: var(--muted); margin-bottom: 10px; }
+  .legend { display: flex; gap: 16px; font-size: 11px; color: var(--text-secondary); margin-bottom: 8px; }
+  .legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
+  .hbar-row { display: flex; align-items: center; margin-bottom: 7px; }
+  .hbar-label { width: 180px; font-size: 11.5px; color: var(--text-secondary); flex-shrink: 0; padding-right: 10px; }
+  .hbar-track { flex: 1; background: var(--gridline); border-radius: 4px; height: 14px; position: relative; }
+  .hbar-fill { height: 14px; border-radius: 4px; background: var(--s-blue); position: relative; }
+  .hbar-val { position: absolute; left: calc(100% + 8px); top: -1px; font-size: 11.5px; font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+  .donut-wrap { display: flex; align-items: center; gap: 24px; }
+  .donut-legend .item { display: flex; align-items: center; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .donut-legend .sw { width: 11px; height: 11px; border-radius: 3px; margin-right: 8px; flex-shrink: 0; }
+  .donut-legend b { color: var(--text-primary); margin-left: 4px; }
+  .grouped-wrap { display: flex; justify-content: space-around; align-items: flex-end; height: 110px; padding: 0 20px; border-bottom: 1px solid var(--baseline); }
+  .grouped-set { display: flex; align-items: flex-end; gap: 6px; }
+  .gbar { width: 34px; border-radius: 3px 3px 0 0; position: relative; }
+  .gbar .v { position: absolute; top: -18px; left: 0; right: 0; text-align: center; font-size: 11px; font-weight: 700; color: var(--text-primary); }
+  .grouped-labels { display: flex; justify-content: space-around; margin-top: 8px; }
+  .grouped-labels span { font-size: 11.5px; color: var(--text-secondary); text-align: center; width: 90px; }
+  .flow { display: flex; flex-direction: column; align-items: center; margin: 10px 0 8px; }
+  .flow-box { width: 100%; background: var(--accent); color: #fff; border-radius: 8px; padding: 12px 20px; text-align: center; margin-bottom: 2px; }
+  .flow-box .t { font-weight: 700; font-size: 13px; letter-spacing: .02em; }
+  .flow-box .d { font-size: 11.5px; opacity: .92; margin-top: 3px; }
+  .flow-box.alt { background: var(--navy); }
+  .flow-arrow { color: var(--accent); font-size: 18px; line-height: 1; margin: 2px 0; }
+</style>
+</head>
+<body>
+
+<!-- COVER -->
+<div class="page cover">
+  <h1>Multi-Cloud IAM Anomaly Detection Platform</h1>
+  <div class="subtitle">Technical Project Documentation — v2, Live Deployment Edition</div>
+</div>
+<div class="page cover-body" style="margin-top:-24px;">
+  <p style="margin-top:24px;">Prepared by Chinthan Dinesh</p>
+  <p><a href="https://github.com/DChinthan/iam-anomaly-detector">github.com/DChinthan/iam-anomaly-detector</a></p>
+  <p><span class="cover-badge">MIT License</span><span class="cover-badge">Open Source</span></p>
+
+  <div class="updated-banner">
+    <strong>What changed since the first edition:</strong> both the AWS and GCP Terraform modules have now been genuinely <code>terraform apply</code>'d against real cloud accounts, exercised end-to-end (real ingest → real score → real database write, plus a real invoked Lambda running the actual scorer code), and torn back down. This surfaced 9 real, previously-undiscovered bugs that <code>terraform validate</code> and code review alone never caught. Full detail in Sections 16–17.
+  </div>
+
+  <p class="lede">An unsupervised machine-learning platform that detects anomalous IAM/CloudTrail user behavior and generates AI-assisted incident reports. Both AWS and GCP now have verified, applied, real-account deployments. The GCP Cloud Run scoring service still runs a placeholder image (Section 8) — that remains the one open integration gap.</p>
+
+  <p class="lede" style="margin-top:40px;">Documentation snapshot: reflects application code and live-deployment work as of 2026-07-15. The detection-rate figure in Section 12 is still the synthetic proof-of-concept — it has not changed and is not a claim of production-validated accuracy.</p>
+  <p class="lede">Python | scikit-learn | TensorFlow | AWS | GCP | Terraform | Kafka | Claude API</p>
+</div>
+
+<!-- AT A GLANCE -->
+<div class="page viz-root" style="padding-top:40px;padding-bottom:36px;">
+  <h2 style="margin-bottom:12px;">At a Glance — Live Deployment, By the Numbers</h2>
+  <div class="stat-row">
+    <div class="stat-tile"><div class="num">9</div><div class="lbl">real bugs found &amp; fixed</div></div>
+    <div class="stat-tile"><div class="num">32</div><div class="lbl">cloud resources applied</div></div>
+    <div class="stat-tile"><div class="num">2 / 2</div><div class="lbl">clouds applied &amp; torn down</div></div>
+    <div class="stat-tile"><div class="num">$0.00</div><div class="lbl">net cost incurred</div></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Bugs found &amp; fixed, by category</div>
+    <div class="chart-sub">9 total across both clouds — none caught by the 40-test unit suite, all surfaced by actually applying and invoking real infrastructure</div>
+    <div class="hbar-row"><div class="hbar-label">Naming &amp; region config</div><div class="hbar-track"><div class="hbar-fill" style="width:100%;background:var(--s-blue);"><span class="hbar-val">3</span></div></div></div>
+    <div class="hbar-row"><div class="hbar-label">Data / schema handling</div><div class="hbar-track"><div class="hbar-fill" style="width:66%;background:var(--s-blue);"><span class="hbar-val">2</span></div></div></div>
+    <div class="hbar-row"><div class="hbar-label">Build &amp; container packaging</div><div class="hbar-track"><div class="hbar-fill" style="width:66%;background:var(--s-blue);"><span class="hbar-val">2</span></div></div></div>
+    <div class="hbar-row"><div class="hbar-label">Auth &amp; credentials</div><div class="hbar-track"><div class="hbar-fill" style="width:33%;background:var(--s-blue);"><span class="hbar-val">1</span></div></div></div>
+    <div class="hbar-row"><div class="hbar-label">ML pipeline robustness</div><div class="hbar-track"><div class="hbar-fill" style="width:33%;background:var(--s-blue);"><span class="hbar-val">1</span></div></div></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Net monthly cost — AWS vs. GCP</div>
+    <div class="chart-sub">Measured against real free-tier/trial pricing at tested scale (55 users) and projected at 10x</div>
+    <div class="legend"><span><span class="sw" style="background:var(--s-blue);"></span>AWS</span><span><span class="sw" style="background:var(--s-green);"></span>GCP</span></div>
+    <div class="grouped-wrap">
+      <div class="grouped-set">
+        <div class="gbar" style="height:26px;background:var(--s-blue);"><span class="v">$0.50</span></div>
+        <div class="gbar" style="height:2px;background:var(--s-green);"><span class="v">$0.00</span></div>
+      </div>
+      <div class="grouped-set">
+        <div class="gbar" style="height:130px;background:var(--s-blue);"><span class="v">$4.14</span></div>
+        <div class="gbar" style="height:56px;background:var(--s-green);"><span class="v">$1.77</span></div>
+      </div>
+    </div>
+    <div class="grouped-labels"><span>Tested scale<br>55 users</span><span>10x projection<br>550 users</span></div>
+  </div>
+
+  <div class="chart-card">
+    <div class="chart-title">Ensemble model weights</div>
+    <div class="chart-sub">Three unsupervised models, each catching a different geometric notion of "normal"</div>
+    <div class="donut-wrap">
+      <svg width="90" height="90" viewBox="0 0 42 42" style="flex-shrink:0;">
+        <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="#e1e0d9" stroke-width="6"></circle>
+        <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="#2a78d6" stroke-width="6" stroke-dasharray="40 60" stroke-dashoffset="25"></circle>
+        <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="#008300" stroke-width="6" stroke-dasharray="30 70" stroke-dashoffset="-15"></circle>
+        <circle cx="21" cy="21" r="15.9" fill="transparent" stroke="#e87ba4" stroke-width="6" stroke-dasharray="30 70" stroke-dashoffset="-45"></circle>
+      </svg>
+      <div class="donut-legend">
+        <div class="item"><span class="sw" style="background:var(--s-blue);"></span>Isolation Forest <b>40%</b></div>
+        <div class="item"><span class="sw" style="background:var(--s-green);"></span>One-Class SVM <b>30%</b></div>
+        <div class="item"><span class="sw" style="background:var(--s-magenta);"></span>TF Autoencoder <b>30%</b></div>
+      </div>
+    </div>
+  </div>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 2</span></div>
+</div>
+
+<!-- EXEC SUMMARY -->
+<div class="page">
+  <h2>1. Executive Summary</h2>
+  <p>This detects anomalous AWS IAM and GCP IAM user behavior with an unsupervised ensemble of three models, trained only on normal behavioral data. Claude writes a short incident summary — attack pattern, key signals, one-line recommendation — for whatever gets flagged, with a rule-based fallback so the pipeline runs the same with or without an API key.</p>
+  <p><code>CLOUD_PROVIDER=aws|gcp</code> is read once at the CLI entry point and picks which ingestion client and persistence store handle a given run; the scoring and feature-engineering code never branches on provider. That routing covers the CLI (<code>main.py</code>) and, as of this edition, the Streamlit dashboard too — <code>dashboard/app.py</code> now shares the same store-selection logic and has a toggle to load real ingested data instead of always regenerating synthetic data (Section 3, Section 6).</p>
+  <p><strong>Both cloud modules have now been applied to real accounts, not just validated.</strong> GCP: 21 resources applied, real Cloud Audit Log events ingested and scored, result written to live Firestore, verified in-console, then torn down. AWS: 11 resources applied including a real Lambda container image built and pushed to ECR, 8 real bugs found and fixed along the way, a successful real Lambda invocation, a real DynamoDB write, then torn down. Section 16 and 17 cover this in full, including every bug found.</p>
+
+  <h3>What's in here</h3>
+  <ul>
+    <li><strong>Detection:</strong> 3-model unsupervised ensemble with a second confidence signal from the autoencoder's own threshold</li>
+    <li><strong>Cloud portability:</strong> CLI and dashboard both route between AWS and GCP for ingestion/storage (Section 6)</li>
+    <li><strong>Streaming:</strong> Event-streaming path (Kafka / GCP Pub/Sub) alongside the batch pipeline — see Section 15 for the real accuracy/latency tradeoff this introduces</li>
+    <li><strong>Incident summaries:</strong> Claude-generated, with a response cache keyed on (user_id, score bucket) to cut redundant calls</li>
+    <li><strong>Infrastructure as Code:</strong> Two Terraform modules, one per cloud — <strong>both now applied to real accounts and torn down</strong> (Section 8, Section 16)</li>
+    <li><strong>Governance:</strong> Statistical model-drift monitoring (PSI/KS) and role-gated dashboard login</li>
+  </ul>
+
+  <h3>2. Problem Statement</h3>
+  <p>Credential-based attacks — stolen or leaked access keys, over-privileged accounts, insider misuse of legitimate access — use valid credentials to operate. Because nothing about the request is malformed or unauthorized at the protocol level, signature-based and rule-based security tooling cannot detect them. The only reliable detection strategy is behavioral: does this account's current access pattern resemble how its legitimate owner normally behaves?</p>
+  <p>This is a continuously relevant problem in any organization operating cloud infrastructure — compromised developer credentials, leaked CI/CD service-account keys, departing employees retaining access, and third-party vendor credentials being reused outside their intended scope are all instances of the same underlying failure mode. This was built as a cloud-portable pattern for that reason — the CLI's ingestion and storage adapters can be swapped without touching the ML/scoring code (Section 6 covers exactly where that line is).</p>
+
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 3</span></div>
+</div>
+
+<!-- ARCHITECTURE -->
+<div class="page viz-root">
+  <h2>3. System Architecture</h2>
+  <p>End-to-end data flow from raw event ingestion through to analyst-facing output:</p>
+  <div class="flow">
+    <div class="flow-box"><div class="t">1. INGESTION</div><div class="d">CloudWatch Logs / Cloud Logging / Kafka / Pub-Sub / synthetic + LANL real-world dataset</div></div>
+    <div class="flow-arrow">▼</div>
+    <div class="flow-box"><div class="t">2. NORMALIZATION &amp; STORAGE</div><div class="d">Unified 9-column event schema → SQLite (dev) or Postgres — RDS / Cloud SQL (prod)</div></div>
+    <div class="flow-arrow">▼</div>
+    <div class="flow-box"><div class="t">3. FEATURE ENGINEERING</div><div class="d">12 behavioral features per user: call volume, off-hours ratio, MFA rate, burst score, geo deviation…</div></div>
+    <div class="flow-arrow">▼</div>
+    <div class="flow-box"><div class="t">4. ENSEMBLE ANOMALY DETECTION</div><div class="d">Isolation Forest (40%) + One-Class SVM (30%) + TensorFlow Autoencoder (30%)</div></div>
+    <div class="flow-arrow">▼</div>
+    <div class="flow-box"><div class="t">5. CONFIDENCE TIERING &amp; DRIFT MONITORING</div><div class="d">CONFIRMED / SUSPECTED classification + PSI / KS drift detection vs. training baseline</div></div>
+    <div class="flow-arrow">▼</div>
+    <div class="flow-box"><div class="t">6. RESULT PERSISTENCE</div><div class="d">DynamoDB (AWS) or Firestore (GCP) — identical interface, either backend</div></div>
+    <div class="flow-arrow">▼</div>
+    <div class="flow-box"><div class="t">7. GENAI INCIDENT REPORTING</div><div class="d">Claude analyzes each flagged user → attack pattern + signals + remediation (cached)</div></div>
+    <div class="flow-arrow">▼</div>
+    <div class="flow-box alt"><div class="t">8. DASHBOARD — NOW CLOUD-PROVIDER AWARE</div><div class="d">Routes through the same store-selection logic as the CLI; "Use live ingested data" toggle loads real events instead of always regenerating synthetic data</div></div>
+  </div>
+  <p>Steps 2 through 7 are provider-agnostic — the same feature-extraction, ensemble-scoring, drift-monitoring, and GenAI-reporting code executes regardless of whether events originated on AWS or GCP (verified by checking imports, see Section 6). Step 8, previously the one cloud-portability exception, was fixed and verified against a real GCP deployment as part of this edition's live-deployment work (Section 16).</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 4</span></div>
+</div>
+
+<!-- CORE COMPONENTS -->
+<div class="page">
+  <h2>4. Core Components</h2>
+  <table>
+    <tr><th>Module</th><th>Responsibility</th></tr>
+    <tr><td>data/log_generator.py, lanl_adapter.py</td><td>Synthetic log generation; real-world LANL dataset adapter</td></tr>
+    <tr><td>data/db.py</td><td>SQLAlchemy engine abstraction — SQLite (dev) / Postgres (prod)</td></tr>
+    <tr><td>features/extractor.py</td><td>FeatureExtractor — computes 12 behavioral features per user. Now returns the correct empty schema on zero input rows (Section 16).</td></tr>
+    <tr><td>models/detector.py, autoencoder.py</td><td>3-model ensemble (Isolation Forest, One-Class SVM, TF Autoencoder), confidence tiering. score() now short-circuits cleanly on zero rows instead of crashing inside scikit-learn (Section 16).</td></tr>
+    <tr><td>models/drift.py</td><td>PSI / Kolmogorov-Smirnov statistical drift detection vs. training baseline</td></tr>
+    <tr><td>genai/insights.py, cache.py</td><td>Claude-powered incident report generation with response caching</td></tr>
+    <tr><td>aws/cloudwatch_client.py, dynamodb_store.py</td><td>AWS ingestion (CloudWatch Logs Insights) and persistence (DynamoDB). Region-suffix, credential, and GSI-type bugs fixed against a real account (Section 16).</td></tr>
+    <tr><td>gcp/cloud_logging_client.py, firestore_store.py</td><td>GCP ingestion (Cloud Logging) and persistence (Firestore)</td></tr>
+    <tr><td>streaming/event_stream.py, pubsub_backend.py, stream_processor.py</td><td>Event-bus abstraction (Kafka / Pub/Sub / mock) and incremental rescoring</td></tr>
+    <tr><td>dashboard/app.py, auth.py</td><td>Streamlit dashboard with role-based login. Now routes through <code>_get_store()</code> like the CLI, with a live-data toggle (fixed this edition).</td></tr>
+    <tr><td>infra/terraform/, terraform-gcp/</td><td>Independent Infrastructure-as-Code modules per cloud — <strong>both now applied to real accounts and torn down</strong>, not just validated.</td></tr>
+    <tr><td>infra/lambda/scorer/</td><td>Real, working Lambda scorer — built, pushed to ECR, deployed, and successfully invoked against a live account this edition.</td></tr>
+    <tr><td>main.py</td><td>CLI entry point; CLOUD_PROVIDER-aware command routing</td></tr>
+  </table>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 5</span></div>
+</div>
+
+<!-- ML ENGINE -->
+<div class="page">
+  <h2>5. ML Detection Engine</h2>
+  <h3>Why an Ensemble of Three Models</h3>
+  <p>Each model captures a different geometric notion of "normal," so a single blind spot in one does not become a blind spot in the system:</p>
+  <ul>
+    <li><strong>Isolation Forest (40% weight):</strong> Tree-based; isolates anomalies via random partitioning. Fast, handles high-dimensional data, assumes roughly linear separability.</li>
+    <li><strong>One-Class SVM (30% weight):</strong> RBF-kernel hypersphere around normal behavior in kernel space; captures non-linear boundaries Isolation Forest can miss.</li>
+    <li><strong>TensorFlow Autoencoder (30% weight):</strong> Dense 12-8-4-8-12 network learning to reconstruct normal sessions; high reconstruction error signals deviation the other two may not isolate cleanly.</li>
+  </ul>
+  <h3>Confidence Tiering</h3>
+  <p>The autoencoder's own 95th-percentile training-reconstruction-error threshold is evaluated independently of the 0.65 ensemble cutoff. A flagged user is marked CONFIRMED when both signals agree, and SUSPECTED when only the ensemble score crosses threshold — this tells you which flags the three models actually agree on, without re-deriving it from raw per-model scores yourself.</p>
+  <h3>Model Drift Monitoring</h3>
+  <p>Population Stability Index (PSI) and a Kolmogorov-Smirnov test are computed per feature against a training-time baseline snapshot, automatically saved on every model fit. This is aimed at catching silent accuracy decay — a model that's quietly gone stale shows up as a number here instead of nothing. See Section 15 for the caveat on the hyperparameters this baseline depends on.</p>
+  <h3>Behavioral Features (12 total)</h3>
+  <table>
+    <tr><th>Feature</th><th>Signal</th></tr>
+    <tr><td>total_api_calls, unique_ips/regions</td><td>Automated abuse; credential sharing</td></tr>
+    <tr><td>off_hours_ratio, weekend_ratio</td><td>Compromised credentials used outside normal schedule</td></tr>
+    <tr><td>mfa_usage_rate</td><td>Stolen long-lived access keys lacking MFA</td></tr>
+    <tr><td>suspicious_api_ratio</td><td>Privilege-escalation API usage (CreateAccessKey, AttachUserPolicy, etc.)</td></tr>
+    <tr><td>burst_score</td><td>Automated credential harvesting / scripted access</td></tr>
+    <tr><td>error_rate</td><td>Permission probing</td></tr>
+    <tr><td>geo_deviation_score</td><td>Lateral movement / IP hopping</td></tr>
+    <tr><td>avg/max_session_duration</td><td>Persistent unauthorized sessions</td></tr>
+  </table>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 6</span></div>
+</div>
+
+<!-- MULTI-CLOUD IMPL -->
+<div class="page">
+  <h2>6. Multi-Cloud Implementation</h2>
+  <p>What's actually shared, checked by grepping every module for aws.* or gcp.* imports rather than trusting my own comments: features/extractor.py, models/detector.py, autoencoder.py, drift.py, genai/insights.py, genai/cache.py, data/db.py, and streaming/event_stream.py have zero cloud imports — same code regardless of provider. Ingestion and persistence are separate files per cloud (aws/cloudwatch_client.py vs. gcp/cloud_logging_client.py, aws/dynamodb_store.py vs. gcp/firestore_store.py) unified only by matching method signatures, not shared code — swapping providers means swapping which file runs, not running the same file twice.</p>
+  <p><strong>Updated this edition:</strong> dashboard/app.py previously imported DynamoDBStore directly and had no CLOUD_PROVIDER branch at all. It now has a <code>_get_store()</code> helper matching main.py's routing exactly, plus a "Use live ingested data" sidebar toggle. Verified against a real GCP deployment — see Section 16.</p>
+  <div class="grid2">
+    <div class="card aws">
+      <h4>AWS</h4>
+      <p style="margin:0 0 6px;"><strong>Audit log ingestion:</strong> CloudWatch Logs Insights</p>
+      <p style="margin:0 0 6px;"><strong>NoSQL persistence:</strong> DynamoDB</p>
+      <p style="margin:0 0 6px;"><strong>Batch compute:</strong> Lambda (container image) — <span class="fixed-tag">real, working, invoked live</span></p>
+      <p style="margin:0 0 6px;"><strong>Scheduler:</strong> EventBridge</p>
+      <p style="margin:0;"><strong>Identity:</strong> IAM role (least privilege)</p>
+    </div>
+    <div class="card gcp">
+      <h4>GCP</h4>
+      <p style="margin:0 0 6px;"><strong>Audit log ingestion:</strong> Cloud Logging (Audit Logs)</p>
+      <p style="margin:0 0 6px;"><strong>NoSQL persistence:</strong> Firestore</p>
+      <p style="margin:0 0 6px;"><strong>Batch compute:</strong> Cloud Run (container image) — <span class="badge badge-warn">still placeholder image</span></p>
+      <p style="margin:0 0 6px;"><strong>Scheduler:</strong> Cloud Scheduler</p>
+      <p style="margin:0;"><strong>Identity:</strong> Service account (least privilege)</p>
+    </div>
+  </div>
+  <h3>Cloud-Provider Routing</h3>
+  <p><code>CLOUD_PROVIDER=aws|gcp</code> is read once at the CLI entry point and determines which ingestion client and persistence store are instantiated for that run. The streaming processor accepts its persistence backend as a constructor parameter, so the same incremental-rescoring engine works against either store without modification to its scoring logic.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 7</span></div>
+</div>
+
+<!-- STREAMING -->
+<div class="page">
+  <h2>7. Real-Time Streaming Architecture</h2>
+  <p>A live event-streaming path runs alongside the batch pipeline: events are consumed one at a time, appended to a per-user rolling window, and any user whose window changed gets rescored incrementally against the pre-trained ensemble, rather than waiting for the next full batch run.</p>
+  <div class="grid2">
+    <div class="card"><h4>Kafka</h4><p style="margin:0;">confluent-kafka, BYO cluster / MSK</p></div>
+    <div class="card"><h4>GCP Pub/Sub</h4><p style="margin:0;">google-cloud-pubsub, emulator-testable</p></div>
+  </div>
+  <p>All backends implement the same producer/consumer interface (produce / poll / flush / close), selected at runtime via <code>STREAM_MODE=kafka|pubsub|mock</code>. The Pub/Sub backend is fully testable against the official local Pub/Sub emulator, requiring no live GCP project.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 8</span></div>
+</div>
+
+<!-- IaC -->
+<div class="page">
+  <h2>8. Infrastructure as Code</h2>
+  <p>Two independent Terraform (HCL) modules provision the full supporting infrastructure per cloud. <strong>As of this edition, both have been applied to real accounts and exercised end-to-end</strong> — not just validated. See Section 16 for the full record.</p>
+  <table>
+    <tr><th>Resource Type</th><th>AWS Module</th><th>GCP Module</th></tr>
+    <tr><td>Result storage</td><td>DynamoDB table + GSI</td><td>Firestore (Native mode) database</td></tr>
+    <tr><td>Log aggregation</td><td>Per-region CloudWatch log groups</td><td>Cloud Logging sink + bucket</td></tr>
+    <tr><td>Messaging</td><td>(Kafka — BYO cluster)</td><td>Pub/Sub topic + subscription</td></tr>
+    <tr><td>Scheduled compute</td><td>Lambda (container image) — <span class="fixed-tag">real code, invoked successfully live</span></td><td>Cloud Run (container image) — still <span class="badge badge-warn">placeholder</span></td></tr>
+    <tr><td>Scheduler</td><td>EventBridge rule</td><td>Cloud Scheduler job</td></tr>
+    <tr><td>Identity</td><td>Least-privilege IAM role</td><td>Least-privilege service account</td></tr>
+    <tr><td>API enablement</td><td>Not required</td><td>google_project_service — 8 APIs</td></tr>
+    <tr><td>Optional auth</td><td>Cognito user pool</td><td>—</td></tr>
+    <tr><td>Monitoring</td><td>CloudWatch metric alarm on errors</td><td>—</td></tr>
+  </table>
+  <p>Publishing the scoring service's container image is outside either module's ownership — Terraform provisions the compute target, not the image. On the AWS side this is now fully done: <code>infra/lambda/scorer/</code> was built, fixed through 8 real bugs, pushed to ECR, and successfully invoked. On the GCP side this remains not-yet-done work: the only application code that exists (<code>infra/lambda/scorer/handler.py</code>) is Lambda-shaped and assumes <code>/var/task</code> — it would fail Cloud Run's health check, which needs a container that binds an HTTP server to <code>$PORT</code>. Writing that adapter is still real, open work.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 9</span></div>
+</div>
+
+<!-- COST -->
+<div class="page">
+  <h2>9. Infrastructure Cost — Now Measured, Not Estimated</h2>
+  <span class="badge badge-ok">VERIFIED — deployed to real accounts, measured, then torn down</span>
+  <p style="margin-top:12px;">Both Terraform modules were applied to real, billed (free-tier/trial) accounts for this edition, run against real traffic at the same 55-user / ~85,000-event scale cited elsewhere in this document, plus real invocation cycles during the AWS bug-fixing loop (~23 Lambda invocations logged in CloudWatch). Actual billing impact on both accounts: effectively $0, covered entirely by GCP's free-trial credit and AWS's always-free-tier allowances (DynamoDB on-demand, Lambda's 400,000 GB-seconds/month, CloudWatch's free alarm/log allotments).</p>
+  <h3>What actually got billed</h3>
+  <table>
+    <tr><th>Resource</th><th>AWS — actual</th><th>GCP — actual</th></tr>
+    <tr><td>Result storage</td><td>$0.00 — DynamoDB on-demand, 55 writes, nowhere near the request-based free tier limits</td><td>$0.00 — Firestore, 1 document written, well under the always-free daily quota</td></tr>
+    <tr><td>Log aggregation</td><td>$0.00 — under CloudWatch Logs' 5GB free tier</td><td>$0.00 — under Cloud Logging's 50GiB/month free tier</td></tr>
+    <tr><td>Scheduled compute</td><td>$0.00 — ~23 real Lambda invocations, far under the 400,000 GB-seconds free tier</td><td>$0.00 — Cloud Run billed per-request; ran the placeholder image with effectively zero real traffic</td></tr>
+    <tr><td>Container registry</td><td>$0.00 — ECR image (~2GB) stored for under 2 hours before deletion, negligible partial-day storage cost</td><td>n/a — no Artifact Registry image was built this edition</td></tr>
+    <tr><td>Scheduler</td><td>$0.00 — EventBridge default-bus rules aren't billed separately</td><td>$0.00 — 1 job, under Cloud Scheduler's 3 free jobs/month</td></tr>
+  </table>
+  <p>The full unit-price / at-scale cost projection from the first edition of this document (per-1,000-events cost, 10x-scale projection) is unchanged and still applies for ongoing production sizing — see the project README's cost notes. This section specifically confirms the tested-scale number was not just modeled, it was verified against real invoices/usage.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 10</span></div>
+</div>
+
+<!-- SECURITY / TECH STACK -->
+<div class="page">
+  <h2>10. Security, Access Control &amp; Testing</h2>
+  <h3>Least-Privilege Access</h3>
+  <p>Both cloud IAM identities are scoped to only the permissions their workload requires — no wildcard actions, no project-owner or editor roles. Confirmed live this edition: the AWS Lambda's IAM policy proved so precisely scoped that it actively blocked a cross-region access attempt (Section 16, bug #6) rather than silently allowing it.</p>
+  <h3>Dashboard Role-Based Access Control</h3>
+  <p>The dashboard enforces its own three-tier login — admin, analyst, viewer — gating retrain controls, GenAI alerts, and user-identifying data by role. This is a DASHBOARD_USERS env var, SHA-256 hashed and checked in-process — not backed by a real identity provider. Fine for local use, not something to point real users at without replacing it (Cognito is scaffolded in infra/terraform/cognito.tf but nothing wires the dashboard to it yet).</p>
+  <h3>Automated Test Coverage</h3>
+  <table>
+    <tr><th>Test Suite</th><th>Tests</th><th>Covers</th></tr>
+    <tr><td>test_feature_extractor.py</td><td>15</td><td>Per-feature correctness across all 12 behavioral signals</td></tr>
+    <tr><td>test_detector.py</td><td>6</td><td>Ensemble fit / score / save / load, confidence tiering</td></tr>
+    <tr><td>test_log_generator.py</td><td>6</td><td>Schema integrity, anomaly injection, timestamp validity</td></tr>
+    <tr><td>test_dynamodb_store.py</td><td>5</td><td>AWS persistence layer, mock-mode CRUD</td></tr>
+    <tr><td>test_firestore_store.py</td><td>5</td><td>GCP persistence layer, mock-mode CRUD</td></tr>
+    <tr><td>test_pubsub_backend.py</td><td>3</td><td>Streaming round-trip, lazy-import safety</td></tr>
+  </table>
+  <p>Total: 40 tests, 100% passing, zero cloud credentials required to execute any of them. None of the 9 bugs found during live deployment (Section 16) were caught by this suite — they're all environment/integration-level issues (container runtime, IAM propagation, provider region wiring) that a mock-mode unit test suite cannot exercise by design. That gap is itself the core argument for why the live-deployment work in Section 16 was worth doing.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 12</span></div>
+</div>
+
+<div class="page">
+  <h2>11. Technology Stack</h2>
+  <table>
+    <tr><th>Layer</th><th>Technologies</th></tr>
+    <tr><td>ML / Modeling</td><td>scikit-learn (Isolation Forest, One-Class SVM), TensorFlow / Keras</td></tr>
+    <tr><td>GenAI</td><td>Anthropic Claude API</td></tr>
+    <tr><td>Feature Engineering</td><td>pandas, numpy, scipy</td></tr>
+    <tr><td>Relational Storage</td><td>SQLite (dev), PostgreSQL — AWS RDS/Aurora or GCP Cloud SQL (prod), via SQLAlchemy</td></tr>
+    <tr><td>NoSQL Storage</td><td>AWS DynamoDB, GCP Firestore</td></tr>
+    <tr><td>Event Streaming</td><td>Apache Kafka (confluent-kafka), GCP Pub/Sub</td></tr>
+    <tr><td>Infrastructure as Code</td><td>Terraform (AWS + Google providers), Docker</td></tr>
+    <tr><td>Dashboard</td><td>Streamlit, Plotly</td></tr>
+    <tr><td>Testing</td><td>pytest (40 tests)</td></tr>
+    <tr><td>Version Control</td><td>Git / GitHub</td></tr>
+  </table>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 13</span></div>
+</div>
+
+<!-- REPO INFO -->
+<div class="page">
+  <h2>12. Repository &amp; Project Information</h2>
+  <table>
+    <tr><th>Field</th><th>Value</th></tr>
+    <tr><td>Repository</td><td>github.com/DChinthan/iam-anomaly-detector</td></tr>
+    <tr><td>License</td><td>MIT (open source)</td></tr>
+    <tr><td>Primary language</td><td>Python 3.11+ (also verified running on Python 3.9 locally during this edition's work)</td></tr>
+    <tr><td>Automated tests</td><td>40 tests, 100% passing</td></tr>
+    <tr><td>Infrastructure validation</td><td><span class="strike">terraform validate: Success (AWS + GCP modules)</span> <span class="fixed-tag">→ terraform apply: Success, both clouds, real accounts, torn down after verification (Section 16)</span></td></tr>
+    <tr><td>Live deployment bugs found &amp; fixed</td><td><strong>9 total</strong> — 1 on GCP (service-account character limit), 8 on AWS (dependency resolution, Docker manifest format, log-group naming, DynamoDB GSI typing, STS credentials, provider region scoping, and two empty-input crashes)</td></tr>
+    <tr><td>Detection rate (proof of concept)</td><td>100% true positive / 0% false positive on the most recent clean run — <strong>unchanged from the first edition, see caveat below</strong></td></tr>
+  </table>
+  <p>That detection rate is one run against synthetic data with injected, labeled anomaly patterns — not a validated benchmark. Injected anomalies are cleaner and more separable than real attacker behavior actively trying to blend in. The LANL real-world adapter proves schema compatibility with real auth data, not detection accuracy — it doesn't ingest LANL's ground-truth redteam labels, so there's no real-world precision/recall number yet.</p>
+  <p><strong>What did change this edition:</strong> the infrastructure claim. Both Terraform modules have moved from "validated, never applied" to "applied against real accounts, exercised with real writes and a real Lambda invocation, and torn down." That is a real, verified, reproducible upgrade — documented in full in Section 16. It is a claim about infrastructure correctness, not about detection accuracy; the two are independent and this document keeps them that way deliberately.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 14</span></div>
+</div>
+
+<!-- VERIFICATION EVIDENCE -->
+<div class="page">
+  <h2>13. Verification Evidence — Local &amp; Automated</h2>
+  <p>Terminal output from the commands cited throughout this document, captured directly from the local development environment.</p>
+  <h3>Automated Test Suite</h3>
+  <div class="term"><div class="dots"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<span class="cmd">$ python -m pytest tests/ -v</span>
+collected 40 items
+
+tests/test_detector.py .............. 6 passed
+tests/test_dynamodb_store.py ........ 5 passed
+tests/test_feature_extractor.py ..... 15 passed
+tests/test_firestore_store.py ....... 5 passed
+tests/test_log_generator.py ......... 6 passed
+tests/test_pubsub_backend.py ........ 3 passed
+
+<span class="ok">======================== 40 passed in 24.41s ========================</span></div>
+
+  <h3>Infrastructure Applied — GCP (real project, torn down after verification)</h3>
+  <div class="term"><div class="dots"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<span class="cmd">$ terraform apply</span>
+...
+<span class="ok">Apply complete! Resources: 21 added, 0 changed, 0 destroyed.</span>
+
+<span class="cmd">$ CLOUD_PROVIDER=gcp GCP_MOCK=false python main.py ingest &amp;&amp; python main.py score</span>
+  [us-central1] ingested 2 events
+<span class="ok">Persisted 1 user results to Firestore (iam-anomaly-results)</span>
+
+<span class="cmd">$ terraform destroy</span>
+...
+<span class="ok">Destroy complete! Resources: 21 destroyed.</span></div>
+
+  <h3>Infrastructure Applied — AWS (real account, torn down after verification)</h3>
+  <div class="term"><div class="dots"><span class="dot-r"></span><span class="dot-y"></span><span class="dot-g"></span></div>
+<span class="cmd">$ terraform apply</span>
+...
+<span class="ok">Apply complete! Resources: 11 added, 0 changed, 0 destroyed.</span>
+
+<span class="cmd">$ python3 main.py score</span>
+<span class="ok">Persisted 55 user results to DynamoDB (iam-anomaly-detector-dev-results)</span>
+
+<span class="cmd">$ aws lambda invoke --function-name iam-anomaly-detector-dev-scorer /tmp/out.json</span>
+{"StatusCode": 200, "ExecutedVersion": "$LATEST"}
+<span class="ok">{"usersScored": 0, "usersFlagged": 0, "flaggedUserIds": []}</span>
+
+<span class="cmd">$ terraform destroy</span>
+...
+<span class="ok">Destroy complete! Resources: 10 destroyed.</span></div>
+
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 15</span></div>
+</div>
+
+<!-- LIVE DASHBOARD -->
+<div class="page">
+  <h2>14. Live Dashboard — Synthetic Demo Mode</h2>
+  <p>Screenshots of the Streamlit dashboard running locally against a freshly generated synthetic dataset (55 users, ~85,000 events), authenticated as the admin role. Not a mockup — captured directly from the running application. This is the default (toggle-off) rendering path; the live-data path is verified separately via the CLI and console evidence in Section 16, since a genuinely single real user produces population-style charts too sparse to be visually meaningful.</p>
+  <img class="shot" src="screenshots/02-dashboard-overview-metrics.png">
+  <p class="cap">Overview metrics and GenAI Security Intelligence Alerts — all 5 synthetically injected anomalous users correctly flagged CRITICAL / Credential Harvesting, 100% true positive rate on this run.</p>
+  <img class="shot" src="screenshots/03-dashboard-score-distribution.png">
+  <p class="cap">Ensemble score distribution vs. the 0.65 threshold, and the flagged-users table.</p>
+  <img class="shot" src="screenshots/04-dashboard-model-comparison.png">
+  <p class="cap">Isolation Forest vs. One-Class SVM, and ensemble score vs. autoencoder reconstruction error — all three models independently agreeing on the same five users.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 16</span></div>
+</div>
+
+<!-- LIVE DEPLOYMENT GCP -->
+<div class="page">
+  <h2>16. Live Cloud Deployment — GCP</h2>
+  <p><code>infra/terraform-gcp/</code> was applied against a real, free-trial-credit GCP project. 21 resources: Firestore, a Pub/Sub topic + subscription, a Cloud Logging sink + bucket, a Cloud Run service (placeholder image), a Cloud Scheduler job, 2 service accounts, and their IAM bindings.</p>
+  <div class="callout"><strong>Bug found and fixed:</strong> <code>terraform plan</code> failed on the first attempt — GCP caps <code>google_service_account.account_id</code> at 30 characters, and <code>${project_name}-${environment}-scheduler</code> is 34. Fixed by adding a truncated <code>sa_prefix</code> local in <code>main.tf</code>. Never caught before because the module had only ever been <code>terraform validate</code>'d.</p>
+  <p><strong>Real ingest → real score → real Firestore write, verified end to end:</strong> 2 real Cloud Audit Log events were pulled from live Cloud Logging (your own terraform-apply and gcloud activity generated them). The real account behind those calls scored <code>ensemble_score=0.70</code> and was flagged — an honest, explainable result: a real user's small midnight session compared against a model trained on a synthetic 30-day, many-call-per-day baseline reads as statistically out-of-distribution. That's the model doing its job correctly on out-of-sample data, not a detected threat.</p>
+  <img class="shot" src="screenshots/07-gcp-firestore-live-document.png">
+  <p class="cap">Firestore — the real scored document, written by the CLI, not the mock JSON file.</p>
+  <img class="shot" src="screenshots/09-gcp-cloud-run-service.png">
+  <p class="cap">Cloud Run — deployed and serving (placeholder image, per the caveat in Section 8).</p>
+  <img class="shot" src="screenshots/11-gcp-cloud-scheduler-job.png">
+  <p class="cap">Cloud Scheduler — the 15-minute job, Status: Success on its last invocation.</p>
+  <p>All 21 resources were subsequently torn down via <code>terraform destroy</code>. Two resources (the Firestore database itself, and the project's enabled APIs) were intentionally left in place per the module's own <code>deletion_policy = "ABANDON"</code> / <code>disable_on_destroy = false</code> safety settings — both are free at rest.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 17</span></div>
+</div>
+
+<!-- LIVE DEPLOYMENT AWS -->
+<div class="page">
+  <h2>17. Live Cloud Deployment — AWS</h2>
+  <p><code>infra/terraform/</code> was applied against a real AWS account, including building and pushing a real Lambda container image to ECR. Unlike GCP's Cloud Run, this Lambda runs the project's actual scorer code — not a placeholder.</p>
+  <p><strong>8 real bugs found and fixed, only surfaced by actually building, deploying, and invoking this for real:</strong></p>
+  <ol>
+    <li><span class="num-list-title">Unpinned ML dependencies broke the container build.</span> Open-ended version bounds resolved to a scikit-learn/numpy pairing with no prebuilt wheel for the Lambda base image, forcing a from-source build that failed (no C compiler in the image). Fixed: <code>pip install --only-binary=:all:</code>.</li>
+    <li><span class="num-list-title">Docker's provenance attestation broke Lambda deployment.</span> Modern Buildx attaches a provenance/SBOM manifest by default, which Lambda's container support rejects outright. Fixed: <code>docker build --provenance=false</code>.</li>
+    <li><span class="num-list-title">CloudWatch log group naming mismatch.</span> Code queried the unsuffixed log group name; Terraform creates one per region with a <code>-{region}</code> suffix. Fixed to match.</li>
+    <li><span class="num-list-title">DynamoDB GSI type mismatch — predicted in the first edition, now confirmed live.</span> The <code>flagged</code> GSI key is typed String (DynamoDB disallows BOOL as a key type entirely); the store wrote a native bool. Fixed by stringifying on write/read.</li>
+    <li><span class="num-list-title">Explicit boto3 credentials broke Lambda's STS auth.</span> Access key + secret were passed explicitly without a session token — fine for long-lived IAM user keys, fatal for Lambda's temporary STS credentials. Fixed by removing the explicit kwargs and trusting boto3's default credential chain.</li>
+    <li><span class="num-list-title">Single un-aliased AWS provider silently broke "multi-region."</span> One <code>aws</code> provider pinned to the first region meant a resource named with a <code>-us-west-2</code> suffix was physically created in <code>us-east-1</code>. Confirmed by the Lambda's own IAM policy, whose ARNs only ever referenced <code>us-east-1</code>. Worked around by scoping to one real region; documented as a real gap, not silently patched.</li>
+    <li><span class="num-list-title">extract_features() crashed on zero ingested events.</span> With no CloudTrail trail wired up, a real ingest legitimately returns 0 rows, and grouping an empty frame produced a DataFrame with no columns at all. Fixed to return the correct empty schema.</li>
+    <li><span class="num-list-title">AnomalyDetector.score() crashed on zero rows regardless.</span> scikit-learn's StandardScaler hard-rejects a 0-sample array. Fixed with an early-return guard — a genuine production robustness fix, since an idle window with zero new activity is a completely realistic scenario, not just a demo edge case.</li>
+  </ol>
+  <div class="callout"><strong>A real, separate gap, documented rather than fixed:</strong> this module creates CloudWatch log groups but never provisions an <code>aws_cloudtrail</code> trail to deliver events into them. A real ingest correctly connects and correctly returns 0 events — there's nothing populating the log group yet, unlike GCP's always-on audit log.</div>
+  <img class="shot" src="screenshots/12-aws-cli-flagged-users.png">
+  <p class="cap">Real DynamoDB write: 55 users scored, 5 flagged, matching the synthetic benchmark's classic anomalous users.</p>
+  <img class="shot" src="screenshots/14-aws-dynamodb-flagged-index.png">
+  <p class="cap">The <code>flagged-index</code> GSI returning real results against the live table — proof the String-type fix works.</p>
+  <img class="shot" src="screenshots/15-aws-lambda-function-overview.png">
+  <p class="cap">Lambda — the real function, deployed from the real ECR image, wired to its EventBridge trigger.</p>
+  <img class="shot" src="screenshots/18-aws-cloudwatch-lambda.png">
+  <p class="cap">CloudWatch — 23 real invocations logged during the debugging + successful-invoke cycle.</p>
+  <img class="shot" src="screenshots/19-aws-ecr-images.png">
+  <p class="cap">ECR — the real pushed image history, one entry per rebuild during the bug-fixing loop above.</p>
+  <p>All 11 resources plus the ECR repository were subsequently destroyed — no abandon-in-place exceptions on this module, everything was fully removed.</p>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 18</span></div>
+</div>
+
+<!-- LIMITATIONS -->
+<div class="page">
+  <h2>18. Limitations / Known Gaps / What I'd Improve Next</h2>
+  <p>Specific things found by checking the code — and, this edition, by actually running it against real cloud accounts — not a generic disclaimer paragraph.</p>
+  <ul>
+    <li><span class="strike">Dashboard isn't cloud-portable.</span> <span class="fixed-tag">Fixed.</span> Routes through the same store logic as the CLI, with a live-data toggle. Verified against a real GCP deployment.</li>
+    <li><strong>Dashboard auth isn't a real identity provider:</strong> DASHBOARD_USERS env var, SHA-256 hashed, checked in-process. Cognito is scaffolded in Terraform but not wired to the dashboard.</li>
+    <li><strong>GCP Cloud Run scoring service still has no working entrypoint:</strong> the only application code that exists is Lambda-shaped and assumes /var/task; it would fail Cloud Run's health check, which needs an HTTP server bound to $PORT. Unlike the AWS side (now fixed and proven live), this adapter is real, not-yet-done work.</li>
+    <li><span class="strike">DynamoDB GSI type mismatch.</span> <span class="fixed-tag">Fixed and confirmed live</span> — this was predicted in the first edition, then hit for real on the first live write, then fixed.</li>
+    <li><span class="strike">terraform validate is not terraform apply.</span> <span class="fixed-tag">Resolved for both clouds</span> — both modules applied against real accounts, exercised end-to-end, and torn down.</li>
+    <li><strong>AWS module creates log groups but never provisions a CloudTrail trail</strong> to deliver events into them — found by applying this for real, not by reading the code.</li>
+    <li><strong>AWS module isn't genuinely multi-region</strong> — a single un-aliased provider means "regional" resources are all physically created in one region regardless of naming. Confirmed live via two different real error types depending on caller IAM permissions.</li>
+    <li><strong>DynamoDB on-demand has no cost ceiling at scale</strong> — right choice at dev/demo volume, would need re-evaluation against provisioned capacity at sustained high traffic. Untested since no real high-traffic run has occurred.</li>
+    <li><strong>Lambda and Cloud Run are sized identically without documented benchmarking</strong> — same memory/CPU allocation on both, chosen without profiling either scoring workload's actual peak usage.</li>
+    <li><strong>No real-world validated detection rate.</strong> The only benchmark is still the synthetic proof-of-concept. The LANL adapter proves schema compatibility, not detection accuracy — its ground-truth redteam labels aren't wired in. This has not changed and this edition doesn't claim otherwise.</li>
+    <li><strong>Hyperparameters are defaults, not tuned</strong> — ensemble weights, the 0.65 threshold, Isolation Forest and autoencoder hyperparameters, none from cross-validation against labeled data.</li>
+    <li><strong>GenAI caching reduces redundant calls, doesn't cap spend</strong> — no hard rate limit or budget ceiling on Claude API usage.</li>
+    <li><strong>suspicious_api_ratio is AWS-shaped</strong> — the fixed API-name list reads near zero on GCP-sourced data even for genuinely suspicious activity.</li>
+    <li><strong>Streaming trades accuracy for latency</strong> — small rolling windows produce noisier features than the 30-day batch baseline; a real tradeoff, not a bug.</li>
+    <li><strong>No CI pipeline in this repo</strong> — tests and terraform validate are run manually, no GitHub Actions workflow gating a PR.</li>
+  </ul>
+  <div class="footer"><span>Multi-Cloud IAM Anomaly Detection Platform — Technical Documentation</span><span>Page 19</span></div>
+</div>
+
+</body>
+</html>

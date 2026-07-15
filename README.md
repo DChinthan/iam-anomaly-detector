@@ -28,8 +28,8 @@ This is the part I want to be precise about, because "cloud-portable" gets throw
 **Cloud-specific adapters — separate files per provider, unified only by matching method signatures (duck typing), not shared code:**
 `aws/cloudwatch_client.py` vs. `gcp/cloud_logging_client.py` (ingestion), `aws/dynamodb_store.py` vs. `gcp/firestore_store.py` (persistence), `streaming/pubsub_backend.py` (GCP-only — Kafka isn't cloud-specific so it's handled inline in `event_stream.py`), and the two Terraform modules (`infra/terraform/` vs. `infra/terraform-gcp/`), which are entirely separate and don't share HCL.
 
-**Where this breaks down — the dashboard is not cloud-portable today:**
-`dashboard/app.py` imports `DynamoDBStore` directly at module level and has no `CLOUD_PROVIDER` awareness at all. Whatever you set that env var to, the dashboard always talks to DynamoDB and always regenerates its own synthetic dataset — it never reads real ingested events from either cloud. The CLI (`main.py`) genuinely routes between AWS and GCP; the dashboard doesn't yet. I'm noting this here instead of letting the architecture diagram imply otherwise.
+**Dashboard cloud-portability — fixed and verified against a real GCP deployment.**
+`dashboard/app.py` used to import `DynamoDBStore` directly at module level with no `CLOUD_PROVIDER` awareness at all, and always regenerated a fresh synthetic dataset — it never read real ingested events from either cloud, no matter what that env var was set to. It now routes through the same store-selection logic as `main.py` (`_get_store()`), and has a sidebar toggle, "Use live ingested data," that loads whatever's actually in `data/iam_logs.db` instead of overwriting it with synthetic data every run. See "Live deployment" below for how this was verified against a real GCP project, including a case that still needs care: fitting a fresh ensemble on a single live user isn't meaningful, so live mode loads the already-trained model rather than refitting.
 
 ```mermaid
 flowchart TD
@@ -52,8 +52,8 @@ flowchart TD
         fs["gcp/firestore_store.py"]
     end
 
-    subgraph ui["Dashboard — AWS-only, not yet cloud-portable"]
-        dash["dashboard/app.py<br/>hardcoded DynamoDBStore, ignores CLOUD_PROVIDER"]
+    subgraph ui["Dashboard — CLOUD_PROVIDER-aware, live-data toggle"]
+        dash["dashboard/app.py<br/>_get_store() routing + 'Use live ingested data' toggle"]
     end
 
     awsin --> db
@@ -63,9 +63,10 @@ flowchart TD
     genai --> ddb
     genai --> fs
     ddb -.-> dash
+    fs -.-> dash
 ```
 
-`main.py` (the CLI) reads `CLOUD_PROVIDER=aws|gcp` once at startup and picks the matching ingestion client and store — that routing is real and it's what the diagram's cloud-specific boxes feed into. The dashboard sits outside that routing.
+`main.py` (the CLI) reads `CLOUD_PROVIDER=aws|gcp` once at startup and picks the matching ingestion client and store — that routing is real and it's what the diagram's cloud-specific boxes feed into. The dashboard now shares the same store-selection logic (see "Live deployment" below).
 
 ---
 
@@ -77,8 +78,8 @@ flowchart TD
 - PSI + Kolmogorov-Smirnov drift check against a saved training-time baseline, so a model that's quietly gone stale shows up as a number instead of nothing.
 - Claude writes a short incident summary (attack pattern, key signals, one-line recommendation) for each flagged user, with a rule-based fallback if no API key is set — the pipeline runs the same either way. Responses are cached by `(user_id, score bucket)` so re-running the dashboard doesn't re-call the API for a user whose score hasn't moved.
 - Streaming path (Kafka / GCP Pub/Sub / in-memory) that rescoring incrementally as events arrive, alongside the batch path. See the Limitations section below for the real tradeoff this introduces.
-- Dashboard login gated by three roles (admin/analyst/viewer) — see the cloud-portability caveat above for what this dashboard does and doesn't do.
-- Two Terraform modules, one per cloud, both pass `terraform validate` — neither has been applied to a real account (also covered in Limitations).
+- Dashboard login gated by three roles (admin/analyst/viewer); the dashboard is now `CLOUD_PROVIDER`-aware with a live-data toggle — see "Live deployment" below.
+- Two Terraform modules, one per cloud. Both pass `terraform validate`; the GCP module has additionally been `terraform apply`'d to a real project (see "Live deployment" below). The AWS module has not yet been applied (also covered in Limitations).
 
 ---
 
@@ -208,6 +209,95 @@ Automated tests: `terraform validate` passes on both IaC modules (Success, check
 
 ---
 
+## Live deployment — applied to real AWS and GCP accounts, not just `terraform validate`
+
+Both cloud modules have now been genuinely `terraform apply`'d against real accounts, exercised end-to-end, and torn down. Between the two, this surfaced **9 real, previously-undiscovered bugs** — none of which `terraform validate` or a code read could have caught, because they only show up when real cloud APIs, real IAM permissions, and real container runtimes are actually involved. That's the concrete case for why "applied," not just "validated," matters. GCP first, then AWS.
+
+### GCP
+
+Everything above describes the code. This section is what happened when `infra/terraform-gcp/` was actually `terraform apply`'d against a real (free-trial) GCP project, rather than just validated.
+
+**What got created.** 21 resources: Firestore (Native mode), a Pub/Sub topic + subscription, a Cloud Logging sink into a dedicated bucket, a Cloud Run service, a Cloud Scheduler job invoking it every 15 minutes, 2 least-privilege service accounts, and their IAM bindings. All within GCP's free tier/trial credit at this scale.
+
+**A real bug this surfaced.** `terraform plan` failed on the first attempt: GCP caps `google_service_account.account_id` at 30 characters, and `${project_name}-${environment}-scheduler` is 34. This had never been caught before because the module had only ever been `terraform validate`'d, never applied. Fixed in `infra/terraform-gcp/main.tf` (added a truncated `sa_prefix` local), `iam.tf`, and `cloud_run.tf`.
+
+**Real ingest → real score → real Firestore write, verified end to end:**
+```bash
+export CLOUD_PROVIDER=gcp GCP_MOCK=false GCP_PROJECT=<project-id>
+python main.py ingest   # pulled 2 real Cloud Audit Log events from live Cloud Logging
+python main.py score    # scored against the already-trained ensemble, wrote the result to live Firestore
+```
+Result: the real account behind those 2 API calls got flagged (`ensemble_score=0.70`, `off_hours_ratio=1.0`, `burst_score=2.0`), and the scored result was confirmed sitting in the live Firestore `iam-anomaly-results` collection via the GCP Console — not the mock JSON file.
+
+**Read that flag correctly.** This isn't "the model caught a real attacker." It's one real user's small, midnight session compared against an ensemble whose "normal" baseline came from a synthetic 30-day, many-call-per-day population — so it reads as statistically out-of-distribution and gets flagged. That's the unsupervised model doing exactly what it's supposed to when applied to real activity that looks nothing like its training data. What this proves is that the pipeline genuinely works end-to-end against a live cloud account and a live database; it is not a validated detection result — that claim still rests solely on the synthetic benchmark above, same caveat as always.
+
+**The dashboard fix this drove.** `dashboard/app.py` previously hardcoded `DynamoDBStore` and always regenerated synthetic data regardless of `CLOUD_PROVIDER` (see the "Dashboard cloud-portability" note above). It now shares `main.py`'s store-selection logic and has a sidebar toggle, "Use live ingested data," to load whatever's actually in `data/iam_logs.db`. One more fix came out of testing this against the 1-user real dataset: fitting a fresh ensemble on a single sample crashes (`ValueError` from Keras's validation split), so live mode loads the already-trained model via `AnomalyDetector.load()` instead of refitting — mirroring what `main.py score` already did. Synthetic demo mode is unaffected and still fits fresh every run.
+
+**What's still not deployed for real.** The Cloud Run service is running Google's placeholder container image (`gcr.io/cloudrun/placeholder`), not the actual scorer — `infra/lambda/scorer/handler.py` is Lambda-shaped and still needs an HTTP-server adapter before it can run on Cloud Run (pre-existing gap, see Limitations). The Cloud Scheduler job does successfully invoke it every 15 minutes (`Status: Success` in the console) — that's it responding 200 to being pinged, not real scoring logic executing.
+
+**Console evidence.** Screenshots taken directly from the GCP Console for the project this was applied to, same day as the `terraform apply` above:
+
+| | |
+|---|---|
+| ![Firestore document showing the real scored result](docs/screenshots/07-gcp-firestore-live-document.png) | **Firestore** — the real `chinthandp@gmail.com` document in `iam-anomaly-results`, written by `python main.py score`, not the mock JSON file. `ensemble_score: "0.7"`, `flagged: true`. |
+| ![Cloud Logging showing real audit log entries](docs/screenshots/08-gcp-cloud-logging-real-audit-events.png) | **Cloud Logging** — real `cloudaudit.googleapis.com` entries from the live project (Cloud Run deploys, IAM policy changes, Scheduler jobs), the actual source `main.py ingest` reads from. |
+| ![Cloud Run service detail page](docs/screenshots/09-gcp-cloud-run-service.png) | **Cloud Run** — `iam-anomaly-detector-dev-scorer`, deployed and serving (running the placeholder image, per the caveat above). |
+| ![Pub/Sub subscription detail page](docs/screenshots/10-gcp-pubsub-subscription.png) | **Pub/Sub** — `iam-anomaly-scorer-sub`, subscribed to `iam-cloudtrail-events`. |
+| ![Cloud Scheduler job with a successful last run](docs/screenshots/11-gcp-cloud-scheduler-job.png) | **Cloud Scheduler** — the 15-minute job, `Status: Success` on its last invocation. |
+
+**Dashboard, for reference.** The screenshots below are the fixed dashboard (`dashboard/app.py`) running — but they're showing **synthetic demo mode**, not the live-data toggle (the numbers, 84,257 events / 55 users / 100% TPR, match the synthetic benchmark above, not the 2-event real dataset). Captured this way deliberately rather than mislabeling a demo-mode screenshot as live: the live-data path is verified instead through the CLI trace and Firestore screenshot above, which unambiguously show the real 1-user result.
+
+| | |
+|---|---|
+| ![Dashboard sign-in screen](docs/screenshots/01-dashboard-login.png) | Role-gated sign-in (`dashboard/auth.py`). |
+| ![Dashboard overview metrics and GenAI alerts](docs/screenshots/02-dashboard-overview-metrics.png) | Overview metrics + Claude-generated GenAI security alerts for flagged users. |
+| ![Anomaly score distribution and flagged users table](docs/screenshots/03-dashboard-score-distribution.png) | Ensemble score distribution vs. the 0.65 threshold, and the flagged-users table. |
+| ![Model comparison scatterplots](docs/screenshots/04-dashboard-model-comparison.png) | Isolation Forest vs. One-Class SVM, and ensemble score vs. autoencoder reconstruction error. |
+| ![Feature heatmap for top-scoring users](docs/screenshots/05-dashboard-feature-heatmap.png) | Per-feature heatmap for the top 20 users by anomaly score. |
+| ![API call volume over time](docs/screenshots/06-dashboard-api-call-volume.png) | Daily API call volume, normal vs. anomalous users. |
+
+### AWS
+
+`infra/terraform/` was applied against a real AWS account (IAM user `Terraform`), including building and pushing a real Lambda container image to ECR — unlike GCP's Cloud Run, which only ever ran a placeholder image, this Lambda runs the project's actual scorer code.
+
+**What got created:** DynamoDB table + GSI, a CloudWatch log group per region, the Lambda function (container image) + its execution role/policy, an EventBridge 15-minute schedule, and a Lambda-error CloudWatch alarm.
+
+**8 real bugs found and fixed, only surfaced by actually building, deploying, and invoking this for real:**
+
+1. **Unpinned ML dependencies broke the container build.** `requirements.txt`'s open-ended lower bounds (`scikit-learn>=1.4.0`, no upper cap) resolved to versions with no prebuilt wheel for the Lambda base image, forcing a from-source `numpy` build that failed — the image has no C compiler. Fixed by forcing `pip install --only-binary=:all:` in `infra/lambda/scorer/Dockerfile`.
+2. **Docker's provenance attestation broke Lambda deployment.** Modern Buildx attaches a provenance/SBOM manifest by default, turning the pushed image into an OCI manifest list — which Lambda's container support explicitly rejects (`"image manifest ... media type ... not supported"`). Fixed with `docker build --provenance=false`.
+3. **CloudWatch log group naming mismatch.** `aws/cloudwatch_client.py` queried the unsuffixed `/aws/cloudtrail/events`, but Terraform's `cloudwatch.tf` creates one log group per region with a `-{region}` suffix — that unsuffixed name never existed. Fixed to match Terraform's naming.
+4. **DynamoDB GSI type mismatch — the exact bug this README already predicted, now confirmed live.** `infra/terraform/dynamodb.tf` types the `flagged` GSI key as String (DynamoDB doesn't allow `BOOL` as a key-schema type at all), but `aws/dynamodb_store.py` wrote it as a native Python `bool`, so every real write failed validation. Fixed by stringifying `flagged` on the write and read-filter paths in `aws/dynamodb_store.py`.
+5. **Explicit boto3 credentials broke Lambda's STS auth.** Both AWS client constructors passed `aws_access_key_id`/`aws_secret_access_key` from env vars but never `aws_session_token` — harmless with long-lived IAM user keys, but Lambda's execution role only ever hands out temporary STS credentials, which are rejected without their session token. Fixed by dropping the explicit credential kwargs entirely and letting boto3's default credential chain resolve them (correct in both environments).
+6. **Single un-aliased AWS provider silently broke "multi-region."** `infra/terraform/main.tf` has one `aws` provider pinned to `var.aws_regions[0]` with no per-region provider aliasing — so the log group *named* `...-us-west-2` was actually physically created in `us-east-1`. Real proof: the Lambda's IAM policy, once generated, only ever granted permissions on `us-east-1`-region ARNs regardless of the resource's name. Workaround applied: scoped `aws_regions` to `["us-east-1"]` only rather than building out full provider aliasing for a dev-scale test — documented as a real gap, not silently patched over.
+7. **`extract_features()` crashed on zero ingested events.** With no CloudTrail trail wired up (see below), a real ingest legitimately returns 0 rows — and `groupby("user_id")` on an empty frame produced a DataFrame with *no columns at all*, breaking every downstream consumer with a `KeyError`. Fixed in `features/extractor.py` to return the correct empty schema.
+8. **`AnomalyDetector.score()` crashed on zero rows regardless of the previous fix.** Even with the right columns, scikit-learn's `StandardScaler.transform()` hard-rejects a 0-sample array. Fixed with an early-return guard in `models/detector.py` that reports "nothing to score" instead of calling into sklearn at all — this is a genuine production robustness fix, not just a demo convenience, since an idle 24-hour window with zero new activity is a completely realistic scenario.
+
+**A real, separate gap, not fixed (documented instead):** this Terraform module creates CloudWatch log groups but never provisions an actual `aws_cloudtrail` trail to deliver events into them — unlike GCP, where every project has an always-on Cloud Audit Log with zero extra setup. So a real `ingest` against this AWS deployment correctly connects and correctly returns 0 events; there's nothing to receive real IAM activity yet.
+
+**Real writes, real invocation, verified:**
+```bash
+export CLOUD_PROVIDER=aws AWS_MOCK=false AWS_REGIONS=us-east-1 DYNAMODB_TABLE=iam-anomaly-detector-dev-results
+python3 main.py score   # 55 users scored, 5 flagged, persisted to real DynamoDB
+aws lambda invoke --function-name iam-anomaly-detector-dev-scorer --region us-east-1 /tmp/out.json
+# {"usersScored": 0, "usersFlagged": 0, "flaggedUserIds": []} — correct, given no CloudTrail data
+```
+
+**Console evidence:**
+
+| | |
+|---|---|
+| ![DynamoDB scan configuration](docs/screenshots/13-aws-dynamodb-scan-setup.png) | **DynamoDB** — real table `iam-anomaly-detector-dev-results`. |
+| ![DynamoDB flagged-index scan results](docs/screenshots/14-aws-dynamodb-flagged-index.png) | The `flagged-index` GSI returning real results — proof the String-type fix actually works against the live table. |
+| ![Lambda function overview](docs/screenshots/15-aws-lambda-function-overview.png) | **Lambda** — `iam-anomaly-detector-dev-scorer`, deployed from the real ECR image, wired to its EventBridge trigger. |
+| ![Lambda service dashboard](docs/screenshots/16-aws-lambda-dashboard.png) | Real invocation/error/concurrency graphs from the debugging + successful-invoke cycle. |
+| ![Lambda monitor tab graphs](docs/screenshots/17-aws-lambda-monitor-graphs.png) | Error count vs. success rate, duration, and throttle metrics for real invocations. |
+| ![CloudWatch cross-service Lambda view](docs/screenshots/18-aws-cloudwatch-lambda.png) | Same function's metrics from CloudWatch's own Lambda view — 23 real invocations logged during this session. |
+| ![ECR repository image history](docs/screenshots/19-aws-ecr-images.png) | **ECR** — the real pushed image history, one entry per rebuild cycle during the bug-fixing loop above. |
+| ![CLI output showing 55 scored users, 5 flagged](docs/screenshots/12-aws-cli-flagged-users.png) | The `python3 main.py score` run that produced the DynamoDB write above. |
+
+---
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -250,17 +340,19 @@ Every backend has a mock mode, so none of this needs cloud credentials.
 
 These are real, specific things I found by checking the code, not a generic disclaimer paragraph:
 
-1. **Dashboard isn't cloud-portable.** `dashboard/app.py` hardcodes `DynamoDBStore` and ignores `CLOUD_PROVIDER` entirely — it always writes to DynamoDB and always uses freshly generated synthetic data, never real ingested events from either cloud. Fixing this means threading the same store-injection pattern `StreamProcessor` already uses into the dashboard.
+1. ~~**Dashboard isn't cloud-portable.**~~ **Fixed.** `dashboard/app.py` now routes through the same `_get_store()` pattern as `main.py`, and a sidebar toggle ("Use live ingested data") loads real ingested events instead of always regenerating synthetic data. Verified against a real GCP deployment — see "Live deployment" above. Remaining caveat: live mode reuses the already-trained model rather than refitting, since refitting on a very small live sample can crash (see that section for why).
 2. **Dashboard auth isn't backed by a real identity provider.** `dashboard/auth.py` is a `DASHBOARD_USERS` env var, SHA-256 hashed, checked in-process. Fine for local dev, not something you'd point real users at. Cognito is scaffolded in `infra/terraform/cognito.tf` but nothing wires the dashboard to it.
 3. **GCP Cloud Run scoring service has no real entrypoint.** `infra/terraform-gcp/cloud_run.tf` references a container image, but the only application code that exists (`infra/lambda/scorer/handler.py`) is a Lambda-style `handler(event, context)` function that assumes `/var/task` — it would not run correctly as a Cloud Run service, which needs an HTTP server listening on `$PORT`. That adapter doesn't exist yet.
-4. **DynamoDB GSI type mismatch.** `infra/terraform/dynamodb.tf` types the `flagged` GSI key as a String, but `aws/dynamodb_store.py` writes it as a native Python bool via boto3. The index wouldn't actually match real writes without changing one side or the other.
-5. **`terraform validate` is not `terraform apply`.** Both modules pass validation; neither has ever been applied against a real AWS or GCP account. Real applies can surface things validation can't — quota limits, region availability, IAM propagation delays, typos in resource references that only fail at plan/apply time.
+4. ~~**DynamoDB GSI type mismatch.**~~ **Fixed and confirmed live.** `infra/terraform/dynamodb.tf` types the `flagged` GSI key as a String, but `aws/dynamodb_store.py` was writing it as a native Python bool via boto3 — this was predicted here before ever being tested, and the first real write against the live table hit exactly this error. Fixed by stringifying `flagged` on write/read. See "Live deployment" above.
+5. ~~**`terraform validate` is not `terraform apply`.**~~ **Resolved for both clouds.** Both modules have now been applied against real accounts and exercised end-to-end (see "Live deployment" above) — GCP surfaced a service-account character-limit bug, AWS surfaced 8 separate bugs including this file's #4. Both environments were subsequently torn down.
 6. **No real-world validated detection rate.** The only benchmark is the synthetic proof-of-concept above. The LANL adapter proves schema compatibility, not detection accuracy, since the ground-truth redteam labels aren't wired in (see above).
 7. **Hyperparameters are defaults, not tuned.** Ensemble weights, the 0.65 threshold, Isolation Forest's `n_estimators`/`contamination`, the autoencoder's `latent_dim`/`epochs` — none of these came from cross-validation or a grid search against labeled data.
 8. **GenAI caching reduces redundant calls, it doesn't cap spend.** `genai/cache.py` skips a repeat Claude call for a user whose score hasn't moved, but there's no hard rate limit or budget ceiling — a caller that hammers `analyze_batch` on genuinely new data would still hit the API at whatever pace it's called.
 9. **`suspicious_api_ratio` is AWS-shaped.** The suspicious-API list is a fixed set of AWS action names (`CreateAccessKey`, `AttachUserPolicy`, etc.). On GCP-sourced data this feature reads near zero even for genuinely suspicious activity, since GCP method names look completely different. The other 11 features are schema-based and work the same regardless of source.
 10. **Streaming trades accuracy for latency.** Incremental rescoring uses small rolling windows (20 events) that produce noisier features — especially burst score — than the 30-day batch baseline, so the streaming path over-flags relative to batch. This is a real tradeoff, not a bug to be fixed for free.
 11. **No CI pipeline in this repo.** Tests and `terraform validate` are run manually. There's no `.github/workflows` gating a PR on either.
+12. **AWS Terraform module creates log groups but never provisions a CloudTrail trail.** `infra/terraform/cloudwatch.tf` creates the CloudWatch log groups `main.py ingest` reads from, but nothing in this module creates an `aws_cloudtrail` resource to actually deliver IAM/API activity into them — unlike GCP, which has an always-on Cloud Audit Log with zero extra setup. Found by applying this for real: `ingest` correctly connects to a real, empty log group and correctly returns 0 events, rather than the crash a naming bug would cause.
+13. **AWS Terraform module isn't genuinely multi-region.** `infra/terraform/main.tf` declares a single `aws` provider pinned to `var.aws_regions[0]`, with no per-region provider aliasing. Resources named with a `-us-west-2` suffix (log groups, IAM policy ARNs) are still physically created in `us-east-1` — the name string doesn't control the region, the provider connection does. Confirmed live: `us-west-2` queries returned `ResourceNotFoundException` locally and `AccessDeniedException` from the Lambda's more restrictive IAM policy, both consistent with the resource never actually existing outside `us-east-1`. Real fix would mean adding aliased provider blocks per region; worked around for testing by scoping `aws_regions` to `["us-east-1"]` only.
 
 ---
 

@@ -4,7 +4,7 @@
 # Secret Manager access for the Claude key.
 resource "google_service_account" "scorer" {
   project      = var.gcp_project
-  account_id   = "${local.name_prefix}-scorer"
+  account_id   = "${local.sa_prefix}-scorer"
   display_name = "IAM Anomaly Detector scoring service"
 
   depends_on = [google_project_service.required]

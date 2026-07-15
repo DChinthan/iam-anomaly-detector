@@ -72,6 +72,18 @@ class AnomalyDetector:
 
     def score(self, features_df: pd.DataFrame) -> pd.DataFrame:
         """Adds iso_score, svm_score, ae_score, ensemble_score, flagged columns."""
+        if features_df.empty:
+            # scikit-learn's StandardScaler.transform() hard-rejects a
+            # 0-sample array, so there's nothing to gain from calling into
+            # the models — a legitimately empty scoring window (no events
+            # ingested) should just report "nothing to score", not crash.
+            result = features_df.copy()
+            for col in ("iso_score", "svm_score", "ae_score", "ensemble_score"):
+                result[col] = pd.Series(dtype="float64")
+            result["flagged"] = pd.Series(dtype="bool")
+            result["ae_threshold_exceeded"] = pd.Series(dtype="bool")
+            result["confidence"] = pd.Series(dtype="object")
+            return result
         X = features_df[FEATURE_COLS].fillna(0).values
 
         iso_raw = self._iso.decision_function(X)

@@ -31,12 +31,10 @@ def _save_mock(store: dict):
 
 def _get_table():
     import boto3
-    dynamodb = boto3.resource(
-        "dynamodb",
-        region_name=os.getenv("AWS_REGION", "us-east-1"),
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-    )
+    # Let boto3's default credential chain resolve creds — explicitly
+    # passing access_key/secret_key without a session token breaks Lambda,
+    # whose execution role only hands out temporary STS credentials.
+    dynamodb = boto3.resource("dynamodb", region_name=os.getenv("AWS_REGION", "us-east-1"))
     return dynamodb.Table(TABLE_NAME)
 
 
@@ -60,6 +58,11 @@ class DynamoDBStore:
             store["Items"].append(item)
             _save_mock(store)
         else:
+            # The `flagged` GSI key is typed String in infra/terraform/dynamodb.tf
+            # — DynamoDB doesn't allow BOOL as a key-schema attribute type at
+            # all, so this has to match as a string, not a native bool.
+            if "flagged" in item:
+                item["flagged"] = str(item["flagged"]).lower()
             _get_table().put_item(Item=item)
 
     def get_result(self, user_id: str) -> Optional[dict]:
@@ -80,7 +83,7 @@ class DynamoDBStore:
         else:
             resp = _get_table().scan(
                 FilterExpression="flagged = :v",
-                ExpressionAttributeValues={":v": True},
+                ExpressionAttributeValues={":v": "true"},
             )
             return resp.get("Items", [])
 

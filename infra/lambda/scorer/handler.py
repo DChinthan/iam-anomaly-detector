@@ -11,6 +11,12 @@ import sys
 
 sys.path.insert(0, "/var/task")  # project root is bundled alongside this handler
 
+# The Lambda base image's system SQLite is older than 3.8.3 — too old for
+# SQLAlchemy's sqlite dialect, which needs it (see Dockerfile). Swap in
+# pysqlite3-binary's bundled modern SQLite before anything imports sqlite3.
+__import__("pysqlite3")
+sys.modules["sqlite3"] = sys.modules.pop("pysqlite3")
+
 from aws.cloudwatch_client import ingest_to_db
 from features.extractor import load_logs, extract_features
 from models.detector import AnomalyDetector

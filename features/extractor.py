@@ -108,6 +108,12 @@ class FeatureExtractor:
 
     def fit_transform(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df.copy()
+        if df.empty:
+            # groupby on an empty frame yields zero groups, so
+            # pd.DataFrame([]) below would have no columns at all — return
+            # the correct (empty) schema instead so callers like
+            # AnomalyDetector.score() can safely index FEATURE_COLS.
+            return pd.DataFrame(columns=list(UserProfile.__dataclass_fields__.keys()))
         df["hour"] = df["timestamp"].dt.hour
         df["day_of_week"] = df["timestamp"].dt.dayofweek
         profiles = [

@@ -3,6 +3,7 @@ Streamlit dashboard for the IAM Anomaly Detector.
 Run with: streamlit run dashboard/app.py
 """
 
+import os
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -15,7 +16,6 @@ import plotly.graph_objects as go
 from data.log_generator import generate_logs
 from features.extractor import load_logs, extract_features
 from models.detector import AnomalyDetector
-from aws.dynamodb_store import DynamoDBStore
 from genai.insights import analyze_batch, SecurityAlert
 from dashboard.auth import require_login, can
 
@@ -26,6 +26,17 @@ st.set_page_config(
 )
 
 DB_PATH = "data/iam_logs.db"
+CLOUD_PROVIDER = os.getenv("CLOUD_PROVIDER", "aws")  # aws | gcp | mock — mirrors main.py
+
+
+def _get_store():
+    """Same routing as main.py's _get_store() — previously this file hardcoded
+    DynamoDBStore regardless of CLOUD_PROVIDER (see README Limitation #1)."""
+    if CLOUD_PROVIDER == "gcp":
+        from gcp.firestore_store import FirestoreStore
+        return FirestoreStore()
+    from aws.dynamodb_store import DynamoDBStore
+    return DynamoDBStore()
 
 # ── auth ──────────────────────────────────────────────────────────────────────
 
@@ -40,7 +51,14 @@ st.sidebar.markdown(
 )
 
 st.sidebar.header("Controls")
-days = st.sidebar.slider("Simulation window (days)", 7, 90, 30)
+use_live_data = st.sidebar.toggle(
+    f"Use live ingested data ({CLOUD_PROVIDER.upper()})",
+    value=False,
+    help="Off = regenerate synthetic demo data (default). On = load whatever's "
+         "already in data/iam_logs.db from `python main.py ingest`, and persist "
+         "scores to the real store for CLOUD_PROVIDER instead of always DynamoDB.",
+)
+days = st.sidebar.slider("Simulation window (days)", 7, 90, 30, disabled=use_live_data)
 threshold = st.sidebar.slider("Anomaly score threshold", 0.40, 0.95, 0.65, 0.05)
 run_genai = st.sidebar.toggle("GenAI Security Insights", value=True) and can(user, "view_genai")
 
@@ -52,28 +70,40 @@ else:
 
 # ── data pipeline ─────────────────────────────────────────────────────────────
 
-@st.cache_data(show_spinner="Generating logs, extracting features, training models…")
-def run_pipeline(days: int):
-    import os
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
-    generate_logs(days=days, output_db=DB_PATH)
+@st.cache_data(show_spinner="Loading data, extracting features, training models…")
+def run_pipeline(days: int, use_live: bool, cloud_provider: str):
+    if use_live:
+        if not os.path.exists(DB_PATH):
+            raise FileNotFoundError(
+                f"No data at {DB_PATH} — run `python main.py ingest` first "
+                f"(with CLOUD_PROVIDER={cloud_provider} set) to populate real events."
+            )
+    else:
+        if os.path.exists(DB_PATH):
+            os.remove(DB_PATH)
+        generate_logs(days=days, output_db=DB_PATH)
     raw = load_logs(DB_PATH)
     features = extract_features(raw)
-    detector = AnomalyDetector()
-    detector.fit(features)
+    if use_live:
+        # Live data may be too small a sample (even 1 user) to fit a fresh
+        # ensemble — reuse the already-trained model instead, mirroring
+        # main.py's cmd_score(), which loads rather than refits.
+        detector = AnomalyDetector.load()
+    else:
+        detector = AnomalyDetector()
+        detector.fit(features)
     scored = detector.score(features)
-    store = DynamoDBStore()
+    store = _get_store()
     store.bulk_put(scored)
     return raw, features, scored
 
-raw_df, features_df, scored_df = run_pipeline(days)
+raw_df, features_df, scored_df = run_pipeline(days, use_live_data, CLOUD_PROVIDER)
 scored_df = scored_df.copy()
 scored_df["flagged"] = scored_df["ensemble_score"] > threshold
 
 # ── header ────────────────────────────────────────────────────────────────────
 
-st.title("AWS IAM Anomaly Detection Dashboard")
+st.title(f"{CLOUD_PROVIDER.upper()} IAM Anomaly Detection Dashboard")
 st.markdown(
     "Unsupervised ML ensemble trained on normal behavior — no labeled attack data required. "
     "**GenAI layer** (Claude) generates analyst-grade security alerts for flagged users."
@@ -229,7 +259,8 @@ fig5 = px.area(
 )
 st.plotly_chart(fig5, use_container_width=True)
 
+_provider_stack = "GCP Cloud Logging + Firestore" if CLOUD_PROVIDER == "gcp" else "AWS CloudWatch + DynamoDB"
 st.caption(
     "Stack: scikit-learn (IsolationForest + OneClassSVM) · TensorFlow/Keras Autoencoder · "
-    "Anthropic Claude API (GenAI) · AWS CloudWatch + DynamoDB · Streamlit + Plotly"
+    f"Anthropic Claude API (GenAI) · {_provider_stack} · Streamlit + Plotly"
 )

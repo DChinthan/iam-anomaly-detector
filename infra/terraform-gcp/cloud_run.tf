@@ -54,7 +54,7 @@ resource "google_cloud_run_v2_service" "scorer" {
 # own invoker identity to call the service on a schedule.
 resource "google_service_account" "scheduler_invoker" {
   project      = var.gcp_project
-  account_id   = "${local.name_prefix}-scheduler"
+  account_id   = "${local.sa_prefix}-scheduler"
   display_name = "Invokes the scoring Cloud Run service on a schedule"
 
   depends_on = [google_project_service.required]

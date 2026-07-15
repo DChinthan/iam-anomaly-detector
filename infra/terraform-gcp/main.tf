@@ -15,6 +15,9 @@ provider "google" {
 
 locals {
   name_prefix = "${var.project_name}-${var.environment}"
+  # GCP service account account_id is capped at 30 chars; truncate so
+  # name_prefix + longest suffix ("-scheduler", 10 chars) still fits.
+  sa_prefix = substr(local.name_prefix, 0, 20)
   common_labels = merge(var.labels, {
     project     = var.project_name
     environment = var.environment

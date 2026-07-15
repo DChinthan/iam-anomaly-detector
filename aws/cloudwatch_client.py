@@ -26,12 +26,10 @@ AWS_REGIONS = [
 
 def _get_boto_client(region: str):
     import boto3
-    return boto3.client(
-        "logs",
-        region_name=region,
-        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
-        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-    )
+    # Let boto3's default credential chain resolve creds — explicitly
+    # passing access_key/secret_key without a session token breaks Lambda,
+    # whose execution role only hands out temporary STS credentials.
+    return boto3.client("logs", region_name=region)
 
 
 def _mock_cloudwatch_events(region: str, limit: int = 500) -> list[dict]:
@@ -120,7 +118,10 @@ def ingest_to_db(
         if MOCK_MODE:
             events = _mock_cloudwatch_events(region)
         else:
-            events = _real_cloudwatch_events(log_group or "/aws/cloudtrail/events", region, hours)
+            # Matches infra/terraform/cloudwatch.tf's per-region log group
+            # naming ("${cloudtrail_log_group_name}-${region}") — the
+            # unsuffixed name was never a real log group.
+            events = _real_cloudwatch_events(log_group or f"/aws/cloudtrail/events-{region}", region, hours)
         for e in events:
             e.setdefault("is_anomaly", 0)
         count = insert_events(engine, events)
